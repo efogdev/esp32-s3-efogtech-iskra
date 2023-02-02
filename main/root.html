@@ -28,16 +28,6 @@
     input { padding: 0; margin: 0; width: 36px; font-size: inherit; border: none; background: transparent }
     #temperature { position: absolute; top: 23%; left: 54%; font-size: 24px; color: #0273a2; width: 82px; text-align: center }
 </style>
-    <template id="heating-status">
-        <div class="heating">
-            <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="margin: auto; background: rgb(255, 255, 255); display: block; shape-rendering: auto;" width="12px" height="12px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
-                <circle cx="50" cy="50" r="32" stroke-width="8" stroke="#ff0033" stroke-dasharray="50.26548245743669 50.26548245743669" fill="none" stroke-linecap="round">
-                    <animateTransform attributeName="transform" type="rotate" repeatCount="indefinite" dur="2.127659574468085s" keyTimes="0;1" values="0 50 50;360 50 50"></animateTransform>
-                </circle>
-            </svg>
-        </div>
-    </template>
-
     <div id="loading">
         <div class="loading-svg">
             <svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink" style="margin: auto; background: rgb(255, 255, 255); display: block; shape-rendering: auto;" width="200px" height="200px" viewBox="0 0 100 100" preserveAspectRatio="xMidYMid">
@@ -115,7 +105,6 @@
             const stateElement = document.querySelector('#state');
             let temperatureElement = document.querySelector('#temperature');
             const heaterStateElement = document.querySelector('#is-heating');
-            const heatingStatusElement = document.querySelector('#heating-status');
 
             if (!temperatureElement && window.eData.t) {
                 temperatureElement = document.createElement('div');
