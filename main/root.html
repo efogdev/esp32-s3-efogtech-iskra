@@ -10,8 +10,8 @@
     html, body, .loading, .panel, #loading { margin: 0; padding: 0; background: #fff; width: 100vw; height: 100vh; overflow: hidden }
 	.loading, .root, .row, .cell, .panel, #loading { display: flex; align-items: center; justify-content: center }
     #loading { position: absolute; left: 0; top: 0; z-index: 999; background: #fff }
-    .panel { flex-direction: column; padding-bottom: 120px; padding-top: 64px; position: relative }
-    .panel::before { content: 'EfogTech Iskra'; position: absolute; top: 32px; text-align: center; width: 100vw; font-size: 24px; color: rgba(141, 17, 17, 0.98) }
+    .panel { flex-direction: column; padding-bottom: 120px; padding-top: 72px; position: relative }
+    .panel::before { content: 'EfogTech Iskra'; position: absolute; top: 64px; text-align: center; width: 100vw; font-size: 24px; color: rgba(141, 17, 17, 0.98) }
     .root { display: none; position: absolute; width: 100vw; height: 100vh; top: 0; left: 0; color: #444; background: #f3f3f3; padding: 60px; font-size: 24px; text-align: center; z-index: 1000; }
     .cell { width: 50%; text-align: center; padding: 16px; flex: 1 1 auto }
     .row { flex-direction: row; width: 100% }
@@ -30,7 +30,7 @@
     #temperature { position: absolute; top: 23%; left: 54%; font-size: 24px; color: #1c86c0; width: 82px; text-align: center }
     .heating { animation-iteration-count: infinite; animation-name: heating; animation-timing-function: ease; animation-duration: 2.2s }
     @keyframes heating {
-        0% { box-shadow: inset 0 0 16px 3px #f00 }
+        0% { box-shadow: inset 0 0 24px 5px #f00 }
         100% { box-shadow: inset 0 0 0 0 #f00 }
     }
 </style>

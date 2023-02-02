@@ -30,6 +30,7 @@ static int usbVrefVoltage = -1;
 static int heaterTemperature = -1;
 static int targetTemperature = -1;
 static bool isHeating = false;
+static bool isWaitingForConnection = true;
 
 #include "server.c"
 #include "ws.c"
@@ -122,6 +123,10 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 static void setHeatValue(int value) {
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, (int) ((value * PWM_MAX) / 255));
     ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+}
+
+static void setConnected() {
+    isWaitingForConnection = false;
 }
 
 static void startHeating() {
@@ -370,20 +375,39 @@ static httpd_handle_t start_webserver(void)
 
 static void rgb_task(void *pvParameters)
 {
-    int duty = 0;
+    int pulseDuty = 0;
     const int BRIGHTNESS_MAX = RGB_MAX * 0.7;
 
     while (1) {
-        duty += 8;
-        duty *= 1.013;
+        if (isWaitingForConnection) {
+            pulseDuty += 8;
+            pulseDuty *= 1.013;
 
-        if (duty >= BRIGHTNESS_MAX) {
-            vTaskDelay(pdMS_TO_TICKS(600));
-            duty = 0;
+            if (pulseDuty >= BRIGHTNESS_MAX) {
+                vTaskDelay(pdMS_TO_TICKS(600));
+                pulseDuty = 0;
+            }
+
+            ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, pulseDuty);
+            ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
+        } else {
+            ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, 0);
+            ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
+
+            if (isHeating) {
+                ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
+                ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
+
+                ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, RGB_MAX * 0.8);
+                ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+            } else {
+                ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, RGB_MAX * 0.8);
+                ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
+
+                ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
+                ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+            }
         }
-
-        ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, duty);
-        ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
