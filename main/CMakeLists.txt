@@ -1,4 +1,4 @@
-idf_component_register(SRCS "esp_http_client_example.c" "server.c" "ws.c"
+idf_component_register(SRCS "main.c" "server.c" "ws.c"
                     INCLUDE_DIRS "."
                     EMBED_TXTFILES howsmyssl_com_root_cert.pem
                     EMBED_FILES root.html
