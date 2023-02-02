@@ -301,6 +301,8 @@ static void http_test_task(void *pvParameters)
     bool level = 0;
     int counter = 0;
 
+    gpio_set_level(GPIO_NUM_LED_1, 1);
+
     while (1) {
         counter++;
 
@@ -380,8 +382,8 @@ static void rgb_task(void *pvParameters)
             duty = 0;
         }
 
-        ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, duty);
-        ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+        ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, duty);
+        ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
 
         vTaskDelay(pdMS_TO_TICKS(10));
     }
@@ -417,7 +419,6 @@ void app_main(void)
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = (
-//            (1ULL << GPIO_NUM_FAN)
             (1ULL << GPIO_NUM_HEAT)
             | (1ULL << GPIO_NUM_PELTIER)  
             | (1ULL << GPIO_NUM_RGB_R) 

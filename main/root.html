@@ -2,7 +2,7 @@
 <html lang="en">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>EfogTech® Iskra</title>
+    <title>EfogTech Iskra</title>
 </head>
 <body>
 <style>
@@ -10,7 +10,8 @@
     html, body, .loading, .panel, #loading { margin: 0; padding: 0; background: #fff; width: 100vw; height: 100vh; overflow: hidden }
 	.loading, .root, .row, .cell, .panel, #loading { display: flex; align-items: center; justify-content: center }
     #loading { position: absolute; left: 0; top: 0; z-index: 999; background: #fff }
-    .panel { flex-direction: column; padding-bottom: 120px }
+    .panel { flex-direction: column; padding-bottom: 120px; padding-top: 64px; position: relative }
+    .panel::before { content: 'EfogTech Iskra'; position: absolute; top: 32px; text-align: center; width: 100vw; font-size: 24px; color: rgba(141, 17, 17, 0.98) }
     .root { display: none; position: absolute; width: 100vw; height: 100vh; top: 0; left: 0; color: #444; background: #f3f3f3; padding: 60px; font-size: 24px; text-align: center; z-index: 1000; }
     .cell { width: 50%; text-align: center; padding: 16px; flex: 1 1 auto }
     .row { flex-direction: row; width: 100% }
@@ -26,7 +27,12 @@
     .tall { background: rgba(141, 17, 17, 0.98); border-color: rgba(171, 47, 47, 0.98); padding-top: 16px; padding-bottom: 16px; border-radius: 32px; font-weight: bold }
     #start { color: white; text-transform: uppercase; margin-right: 12px; min-width: 120px }
     input { padding: 0; margin: 0; width: 36px; font-size: inherit; border: none; background: transparent }
-    #temperature { position: absolute; top: 23%; left: 54%; font-size: 24px; color: #0273a2; width: 82px; text-align: center }
+    #temperature { position: absolute; top: 23%; left: 54%; font-size: 24px; color: #1c86c0; width: 82px; text-align: center }
+    .heating { animation-iteration-count: infinite; animation-name: heating; animation-timing-function: ease; animation-duration: 2.2s }
+    @keyframes heating {
+        0% { box-shadow: inset 0 0 16px 3px #f00 }
+        100% { box-shadow: inset 0 0 0 0 #f00 }
+    }
 </style>
     <div id="loading">
         <div class="loading-svg">
@@ -71,8 +77,7 @@
         const show = (classname, isId = false) => { document.querySelector(`${isId ? '#' : '.'}${classname}`).style.display = 'flex' };
 
         window.ws = new WebSocket("ws://192.168.4.1/ws");
-        // window.ws.onopen = () => setTimeout(() => ws.send('on'), 800);
-        window.ws.onopen = ws.send('on');
+        window.ws.onopen = () => setTimeout(() => ws.send('on'), 500);
         window.ws.onmessage = (e) => {
             const { data } = e;
             const { type, content } = JSON.parse(data);
@@ -105,6 +110,7 @@
             const stateElement = document.querySelector('#state');
             let temperatureElement = document.querySelector('#temperature');
             const heaterStateElement = document.querySelector('#is-heating');
+            const panelElement = document.querySelector('.panel');
 
             if (!temperatureElement && window.eData.t) {
                 temperatureElement = document.createElement('div');
@@ -116,12 +122,16 @@
             }
 
             if (window.eData.heat) {
+                panelElement.classList.add('heating');
+
                 heaterStateElement.classList.add('red');
                 heaterStateElement.classList.remove('green');
                 heaterStateElement.innerText = 'HEATING';
 
                 startButton.innerText = 'STOP';
             } else {
+                panelElement.classList.remove('heating');
+
                 heaterStateElement.classList.remove('red');
                 heaterStateElement.classList.add('green');
                 heaterStateElement.innerText = 'Not heating';
