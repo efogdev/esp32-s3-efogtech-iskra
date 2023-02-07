@@ -12,7 +12,7 @@
 static const char *WS_TAG = "WS";
 static int voltage = 0;
 static int _temperature = 0;
-//static const int voltageOkThreshold = 2400;
+static const int voltageOkThreshold = 2400;
 
 static void toggleHeating();
 static void setConnected();
@@ -115,16 +115,16 @@ static esp_err_t echo_handler(httpd_req_t *req)
             ESP_LOGI(WS_TAG, "WiFi connection established!");
             setConnected();
 
-//            if (voltage < voltageOkThreshold) {
-//                const char *buf = "{\"type\":\"show\",\"content\":\"Your power adapter is too weak, not enough power for the heater. \\n\\n Please, find a one with PD (Power Deliver) 30W or more.\"}";
-//                httpd_ws_frame_t pkt;
-//                memset(&pkt, 0, sizeof(httpd_ws_frame_t));
-//                pkt.payload = (uint8_t *) buf;
-//                pkt.type = HTTPD_WS_TYPE_TEXT;
-//                pkt.len = strlen(buf);
-//
-//                ret = httpd_ws_send_frame(req, &pkt);
-//            }
+            if (voltage < voltageOkThreshold) {
+                const char *buf = "{\"type\":\"show\",\"content\":\"Your power adapter is too weak, not enough power for the heater. \\n\\n Please, find a one with PD (Power Deliver) 30W or more.\"}";
+                httpd_ws_frame_t pkt;
+                memset(&pkt, 0, sizeof(httpd_ws_frame_t));
+                pkt.payload = (uint8_t *) buf;
+                pkt.type = HTTPD_WS_TYPE_TEXT;
+                pkt.len = strlen(buf);
+
+                ret = httpd_ws_send_frame(req, &pkt);
+            }
         }
 
         if (strcmp((const char *) ws_pkt.payload, "heat") == 0) {
