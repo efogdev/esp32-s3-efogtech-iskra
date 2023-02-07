@@ -116,7 +116,7 @@ static esp_err_t echo_handler(httpd_req_t *req)
             setConnected();
 
             if (voltage < voltageOkThreshold) {
-                const char *buf = "{\"type\":\"show\",\"content\":\"Your power adapter is too weak, not enough power for the heater. \\n\\n Please, find a one with PD (Power Deliver) 30W or more.\"}";
+                const char *buf = "{\"type\":\"show\",\"content\":\"Your power adapter is too weak, not enough power for the heater. \\n\\n Please, find a one with PD (Power Delivery) 30W or more.\"}";
                 httpd_ws_frame_t pkt;
                 memset(&pkt, 0, sizeof(httpd_ws_frame_t));
                 pkt.payload = (uint8_t *) buf;
