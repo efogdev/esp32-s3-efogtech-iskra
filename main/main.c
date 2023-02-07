@@ -406,8 +406,8 @@ static void rgb_task(void *pvParameters)
                 if (redPulseDuty >= BRIGHTNESS_MAX)
                     redPulseDirection = 0;
 
-                if (redPulseDuty <= RED_BRIGHTNESS_MIN) {
-                    redPulseDuty = 0;
+                if (redPulseDuty < RED_BRIGHTNESS_MIN) {
+                    redPulseDuty = RED_BRIGHTNESS_MIN;
                     redPulseDirection = 1;
                 }
 
