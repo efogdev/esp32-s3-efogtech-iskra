@@ -1,4 +1,5 @@
 #include <string.h>
+#include <math.h>
 #include <stdlib.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/FreeRTOSConfig.h"
@@ -28,7 +29,7 @@ static const char *TAG = "EFOGTECH-ISKRA";
 
 static int usbVrefVoltage = -1;
 static int heaterTemperature = -1;
-static int targetTemperature = -1;
+static int targetTemperature = 190;
 static bool isHeating = false;
 static bool isWaitingForConnection = true;
 
@@ -127,6 +128,10 @@ static void setHeatValue(int value) {
 
 static void setConnected() {
     isWaitingForConnection = false;
+}
+
+static void setTargetTemperature(int temp) {
+    targetTemperature = temp;
 }
 
 static void startHeating() {
@@ -375,8 +380,11 @@ static httpd_handle_t start_webserver(void)
 
 static void rgb_task(void *pvParameters)
 {
+    const int BRIGHTNESS_MAX = RGB_MAX * 0.8;
+    const int RED_BRIGHTNESS_MIN = RGB_MAX * 0.1;
     int pulseDuty = 0;
-    const int BRIGHTNESS_MAX = RGB_MAX * 0.7;
+    int redPulseDuty = BRIGHTNESS_MAX;
+    bool redPulseDirection = 0;
 
     while (1) {
         if (isWaitingForConnection) {
@@ -395,13 +403,28 @@ static void rgb_task(void *pvParameters)
             ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
 
             if (isHeating) {
+                if (redPulseDuty >= BRIGHTNESS_MAX)
+                    redPulseDirection = 0;
+
+                if (redPulseDuty <= RED_BRIGHTNESS_MIN) {
+                    redPulseDuty = 0;
+                    redPulseDirection = 1;
+                }
+
+                if (redPulseDirection == 1) {
+                    redPulseDuty += 16;
+                } else {
+                    redPulseDuty -= 16;
+                }
+
+
                 ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
                 ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
 
-                ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, RGB_MAX * 0.8);
+                ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, redPulseDuty);
                 ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
             } else {
-                ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, RGB_MAX * 0.8);
+                ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, BRIGHTNESS_MAX);
                 ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
 
                 ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
@@ -417,11 +440,35 @@ static void report_task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     while (1) {
+        float ntcResistance = 5600 * (1 / (3.3 / ((3.3 * heaterTemperature) / 4096) - 1));
+
+        float temperature;
+        temperature = ntcResistance / 100000;     // (R/Ro)
+        temperature = log(temperature);                  // ln(R/Ro)
+        temperature /= 3950;                   // 1/B * ln(R/Ro)
+        temperature += 1.0 / (25 + 273.15); // + (1/To)
+        temperature = 1.0 / temperature;                 // Invert
+        temperature -= 273.15;                         // convert absolute temp to C
+
+        heaterTemperature = (int) temperature;
+
+        if (isHeating) {
+            if (temperature >= targetTemperature) {
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
+                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+            }
+
+            if (temperature < targetTemperature - 2) {
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
+                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+            }
+        }
+
         char buf[128];
         sprintf(buf,
             "{\"type\":\"update\",\"content\":{\"heat\":%s,\"t\":\"%d\",\"v\":\"%d\"}}",
             isHeating ? "true" : "false",
-            heaterTemperature,
+            (int) temperature,
             usbVrefVoltage
         );
 

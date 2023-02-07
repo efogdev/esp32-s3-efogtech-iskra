@@ -2,6 +2,11 @@
 <html lang="en">
 <head>
     <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="full-screen" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Iskra Vaporizer">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
     <title>EfogTech Iskra</title>
 </head>
 <body>
@@ -27,10 +32,10 @@
     .tall { background: rgba(141, 17, 17, 0.98); border-color: rgba(171, 47, 47, 0.98); padding-top: 16px; padding-bottom: 16px; border-radius: 32px; font-weight: bold }
     #start { color: white; text-transform: uppercase; margin-right: 12px; min-width: 120px }
     input { padding: 0; margin: 0; width: 36px; font-size: inherit; border: none; background: transparent }
-    #temperature { position: absolute; top: 23%; left: 54%; font-size: 24px; color: #1c86c0; width: 82px; text-align: center }
+    #temperature { position: absolute; top: 25%; left: 55%; font-size: 24px; color: #1c86c0; width: 82px; text-align: center }
     .heating { animation-iteration-count: infinite; animation-name: heating; animation-timing-function: ease; animation-duration: 2.2s }
     @keyframes heating {
-        0% { box-shadow: inset 0 0 24px 5px #f00 }
+        0% { box-shadow: inset 0 0 12px 3px #f00 }
         100% { box-shadow: inset 0 0 0 0 #f00 }
     }
 </style>
@@ -59,7 +64,7 @@
                     <div class="tag neutral">
                         Target:
                         <br /><br />
-                        <input type="number" id="targetTemperature" value="340" />&#8451;
+                        <input type="number" id="targetTemperature" value="190" />&#8451;
                     </div>
                 </div>
 
@@ -100,6 +105,13 @@
 
         const startButton = document.querySelector('#start');
         const targetTemperatureInput = document.querySelector('#targetTemperature');
+        let temperatureElement = document.querySelector('#temperature');
+
+        const updateTemperature = (t = window.eData.t) => {
+            let temperature = parseInt(t);
+            if (temperature < 25) temperature = 25;
+            temperatureElement.innerHTML = temperature.toString() + ' &#8451;' || '30 &#8451;';
+        };
 
         setInterval(() => {
             if (window.eData.update && Date.now() - window.eData.update > 500) {
@@ -108,17 +120,17 @@
                 hide('loading', true)
             }
             const stateElement = document.querySelector('#state');
-            let temperatureElement = document.querySelector('#temperature');
             const heaterStateElement = document.querySelector('#is-heating');
             const panelElement = document.querySelector('.panel');
+            const mainRowElement = document.querySelector('.row.main');
 
             if (!temperatureElement && window.eData.t) {
                 temperatureElement = document.createElement('div');
                 temperatureElement.id = 'temperature';
                 stateElement.parentNode.insertBefore(temperatureElement, stateElement);
-                temperatureElement.innerHTML = window.eData.t + ' &#8451;' || '30 &#8451;';
+                updateTemperature();
             } else if (window.eData.t) {
-                temperatureElement.innerHTML = window.eData.t + ' &#8451;' || '30 &#8451;';
+                updateTemperature();
             }
 
             if (window.eData.heat) {
@@ -145,26 +157,30 @@
         });
 
         targetTemperatureInput.addEventListener('focus', () => {
+            hide('row.main');
+
             if (window.eData.heat) {
                 window.ws.send('heat');
             }
         });
 
         targetTemperatureInput.addEventListener('blur', () => {
+            show('row.main');
+
             let value = parseInt(targetTemperatureInput.value);
 
-            if (value < 30 || value > 420) {
+            if (value < 30 || value > 250) {
                 value = 30;
                 targetTemperatureInput.value = value;
 
-                alert('Allowed range is 30 - 360.');
+                alert('Allowed range is 30 - 250.');
             }
 
             if (window.eData.heat) {
                 window.ws.send('heat');
             }
 
-            window.ws.send('t=' + value);
+            window.ws.send('set t=' + value);
         });
     </script>
 </body>
