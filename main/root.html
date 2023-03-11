@@ -168,11 +168,11 @@
 
             let value = parseInt(targetTemperatureInput.value);
 
-            if (value < 30 || value > 250) {
+            if (value < 30 || value > 350) {
                 value = 30;
                 targetTemperatureInput.value = value;
 
-                alert('Allowed range is 30 - 250.');
+                alert('Allowed range is 30 - 350.');
             }
 
             if (window.eData.heat) {

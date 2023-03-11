@@ -12,7 +12,7 @@
 static const char *WS_TAG = "WS";
 static int voltage = 0;
 static int _temperature = 0;
-static const int voltageOkThreshold = 2400;
+static const int voltageOkThreshold = 740;
 
 static void toggleHeating();
 static void setConnected();
@@ -27,32 +27,8 @@ static void ws_update_temperature(int new_temperature) {
     _temperature = new_temperature;
 }
 
-static void ws_update_voltage(int new_voltage) {
+static void ws_update_voltage(int new_voltage, int new_cc1, int new_cc2) {
     voltage = new_voltage;
-}
-
-static void ws_async_send(void *arg)
-{
-    static const char * data = "Async data";
-    struct async_resp_arg *resp_arg = arg;
-    httpd_handle_t hd = resp_arg->hd;
-    int fd = resp_arg->fd;
-    httpd_ws_frame_t ws_pkt;
-    memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
-    ws_pkt.payload = (uint8_t*)data;
-    ws_pkt.len = strlen(data);
-    ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-
-    httpd_ws_send_frame_async(hd, fd, &ws_pkt);
-    free(resp_arg);
-}
-
-static esp_err_t trigger_async_send(httpd_handle_t handle, httpd_req_t *req)
-{
-    struct async_resp_arg *resp_arg = malloc(sizeof(struct async_resp_arg));
-    resp_arg->hd = req->handle;
-    resp_arg->fd = httpd_req_to_sockfd(req);
-    return httpd_queue_work(handle, ws_async_send, resp_arg);
 }
 
 static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_handle_t server_handle) {
@@ -142,12 +118,6 @@ static esp_err_t echo_handler(httpd_req_t *req)
             setTargetTemperature(target);
             ESP_LOGI(WS_TAG, "Target: %d degrees.", target);
         }
-    }
-
-    if (ws_pkt.type == HTTPD_WS_TYPE_TEXT &&
-        strcmp((char*)ws_pkt.payload,"Trigger async") == 0) {
-        free(buf);
-        return trigger_async_send(req->handle, req);
     }
 
     if (ret != ESP_OK) {
