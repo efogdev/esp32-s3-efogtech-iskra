@@ -24,6 +24,9 @@
 #include "lwip/inet.h"
 #include "esp_mac.h"
 #include <sys/param.h>
+#include "esp_ota_ops.h"
+#include "esp_flash_partitions.h"
+#include "esp_partition.h"
 
 static const char *TAG = "EFOGTECH-ISKRA";
 
@@ -38,8 +41,11 @@ static int fanValue = 0;
 static bool isHeating = false;
 static bool isWaitingForConnection = true;
 
+static esp_err_t start_file_server(httpd_handle_t);
+
 #include "server.c"
 #include "ws.c"
+#include "ota.c"
 
 #define PWM_FREQ 12000
 #define PWM_RESOLUTION LEDC_TIMER_5_BIT
@@ -328,20 +334,11 @@ static void IRAM_ATTR makeJob() {
     adc_oneshot_read(adc2_handle, WATER_TEMP_ADC_CHANNEL, &waterTemperature);
     adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &radiatorTemperature);
 
-//    adc_oneshot_read(adc2_handle, USB_CC1_ADC_CHANNEL, &cc1);
-//    adc_oneshot_read(adc2_handle, USB_CC2_ADC_CHANNEL, &cc2);
-
     usbVrefVoltage = usbVref;
     heaterTemperature = temperature;
 
     ws_update_voltage(usbVref, cc1, cc2);
     ws_update_temperature(temperature);
-
-//    printf("\n");
-//    printf("Voltage: RAW = %d, V = %.2f\n", usbVref, ((float) usbVref * 3.1) / pow(2, 12) * 10);
-//    printf("CC1 = %d, CC2 = %d\n", cc1, cc2);
-
-    printf("%d %d %d\n", temperature, waterTemperature, radiatorTemperature);
 }
 
 static void pcb_led_task(void *pvParameters)
@@ -355,8 +352,17 @@ static void pcb_led_task(void *pvParameters)
     }
 }
 
-extern const char root_start[] asm("_binary_root_html_start");
-extern const char root_end[] asm("_binary_root_html_end");
+extern const char root_start[] asm("_binary_index_html_start");
+extern const char root_end[] asm("_binary_index_html_end");
+
+extern const char manifest_start[] asm("_binary_manifest_json_start");
+extern const char manifest_end[] asm("_binary_manifest_json_end");
+
+extern const char ota_start[] asm("_binary_upload_html_start");
+extern const char ota_end[] asm("_binary_upload_html_end");
+
+extern const char bundle_start[] asm("_binary_bundle_js_start");
+extern const char bundle_end[] asm("_binary_bundle_js_end");
 
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
@@ -368,10 +374,62 @@ static esp_err_t root_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t bundle_get_handler(httpd_req_t *req)
+{
+    const uint32_t bundle_len = bundle_end - bundle_start;
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, bundle_start, bundle_len);
+
+    return ESP_OK;
+}
+
+static esp_err_t manifest_get_handler(httpd_req_t *req)
+{
+    const uint32_t manifest_len = manifest_end - manifest_start;
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, manifest_start, manifest_len);
+
+    return ESP_OK;
+}
+
+static esp_err_t ota_get_handler(httpd_req_t *req)
+{
+    const uint32_t ota_len = ota_end - ota_start;
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, ota_start, ota_len);
+
+    return ESP_OK;
+}
+
 static const httpd_uri_t root = {
     .uri = "/",
     .method = HTTP_GET,
-    .handler = root_get_handler
+    .handler = root_get_handler,
+    .user_ctx = NULL
+};
+
+static const httpd_uri_t ota = {
+     .uri = "/ota",
+     .method = HTTP_GET,
+     .handler = ota_get_handler,
+     .user_ctx = NULL
+};
+
+static const httpd_uri_t manifest = {
+     .uri = "/manifest.json",
+     .method = HTTP_GET,
+     .handler = manifest_get_handler,
+     .user_ctx = NULL
+};
+
+static const httpd_uri_t bundle = {
+     .uri = "/bundle.js",
+     .method = HTTP_GET,
+     .handler = bundle_get_handler,
+     .user_ctx = NULL
 };
 
 esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
@@ -389,13 +447,23 @@ static httpd_handle_t start_webserver(void)
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
     config.max_open_sockets = 6;
+    config.recv_wait_timeout = 180;
+    config.send_wait_timeout = 180;
+    config.keep_alive_idle = 180;
     config.lru_purge_enable = true;
+    config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
+        httpd_register_uri_handler(server, &ota);
+        httpd_register_uri_handler(server, &manifest);
+        httpd_register_uri_handler(server, &bundle);
         httpd_register_uri_handler(server, &root);
-        httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
+
         initWebsocket(server);
+        start_file_server(server);
+
+        httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     }
 
     return server;
@@ -495,7 +563,7 @@ static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
 }
 
 static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
-    int baseDelay = 1;
+    int baseDelay = 64;
     int state = 0;
 
     while (1) {
@@ -521,6 +589,17 @@ static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
 
         gpio_set_level(GPIO_NUM_FAN, state);
         vTaskDelay(pdMS_TO_TICKS(baseDelay * delayTicks));
+    }
+}
+
+static void IRAM_ATTR pd_task(void *pvParameters) {
+    vTaskDelay(pdMS_TO_TICKS(250));
+
+    while (1) {
+        gpio_set_level(GPIO_NUM_PD_CFG2, 1);
+        gpio_set_level(GPIO_NUM_PD_CFG3, 0);
+
+        vTaskDelay(pdMS_TO_TICKS(6000));
     }
 }
 
@@ -573,7 +652,7 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         ws_send_frame_to_all_clients(&pkt, webserver);
 
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(250));
     }
 }
 
@@ -598,9 +677,15 @@ void app_main(void)
 
     io_conf.pin_bit_mask = (
             (1ULL << GPIO_NUM_PD_CFG2)
-            | (1ULL << GPIO_NUM_PD_CFG3)
         );
     io_conf.pull_down_en = 0;
+    io_conf.pull_up_en = 1;
+    gpio_config(&io_conf);
+
+    io_conf.pin_bit_mask = (
+            (1ULL << GPIO_NUM_PD_CFG3)
+    );
+    io_conf.pull_down_en = 1;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
@@ -622,21 +707,8 @@ void app_main(void)
     io_conf.pull_up_en = 1;
     gpio_config(&io_conf);
 
-//    io_conf.intr_type = GPIO_INTR_DISABLE;
-//    io_conf.mode = GPIO_MODE_INPUT;
-//    io_conf.pin_bit_mask = (
-//        (1ULL << GPIO_NUM_USB_CC1_VREF) |
-//        (1ULL << GPIO_NUM_USB_CC2_VREF)
-//    );
-//    io_conf.pull_down_en = 0;
-//    io_conf.pull_up_en = 0;
-//    gpio_config(&io_conf);
-
-    gpio_set_level(GPIO_NUM_FAN, 1);
-//    gpio_set_level(GPIO_NUM_PELTIER, 1);
-
-    gpio_set_level(GPIO_NUM_PD_CFG2, 1);
-    gpio_set_level(GPIO_NUM_PD_CFG3, 0);
+//    gpio_set_level(GPIO_NUM_PD_CFG2, 0);
+//    gpio_set_level(GPIO_NUM_PD_CFG3, 1);
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -644,6 +716,7 @@ void app_main(void)
       ret = nvs_flash_init();
     }
     ESP_ERROR_CHECK(ret);
+
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
@@ -668,6 +741,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init soft PWM");
     xTaskCreate(&soft_pwm_task, "soft_pwm_task", 512, NULL, 6, NULL);
+    xTaskCreate(&pd_task, "pd_task", 512, NULL, 15, NULL);
     xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 512, NULL, 6, NULL);
 
     ESP_LOGI(TAG, "Init RGB");

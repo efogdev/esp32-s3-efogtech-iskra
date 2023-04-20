@@ -3,6 +3,7 @@
 .project
 build
 cmake-build-debug
+main/ui/build
 
 server_certs/*
-
+*.pem

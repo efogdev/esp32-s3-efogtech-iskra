@@ -1,0 +1,108 @@
+@import '~style/helpers';
+
+.good {
+	fill: #fff;
+}
+
+.bad {
+	fill: #a5a5a5;
+}
+
+.header {
+	position: fixed;
+	left: 0;
+	top: 0;
+	width: 100%;
+	height: 56px;
+	padding: 0;
+	background: #673AB7;
+	box-shadow: 0 0 5px rgba(0, 0, 0, 0.5);
+	z-index: 50;
+	display: flex;
+	justify-content: center;
+	align-items: center;
+
+	h1 {
+		margin: 0;
+		padding: 0 0 0 24px;
+		font-size: 24px;
+		height: 56px;
+		max-height: 56px;
+		line-height: 56px;
+		font-weight: 400;
+		color: #FFF;
+		flex: 1 1 auto;
+		display: flex;
+		align-items: center;
+		position: relative;
+		top: -2px;
+
+		.logo {
+			width: 16px;
+			fill: #ffffff;
+			margin-right: 12px;
+			position: relative;
+			top: 2px;
+		}
+
+		.logo.heating {
+			fill: #ff5b5b;
+		}
+
+		.good, .bad, .loading, .psu {
+			width: 16px;
+			height: 16px;
+			margin-right: 12px;
+			position: relative;
+			top: 2px;
+		}
+
+		.good {
+			top: 2px;
+			left: -2px;
+			filter: invert();
+			width: 18px;
+			height: 18px;
+			margin-right: 10px;
+			stroke: #fff;
+		}
+
+		.bad {
+			left: -1px;
+		}
+
+		.psu {
+			stroke: #ff5b5b;
+			fill: #ff5b5b;
+			width: 18px;
+			height: 18px;
+			margin-right: 10px;
+		}
+	}
+
+	nav {
+		font-size: 100%;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		height: 100%;
+
+		a {
+			display: flex;
+			justify-content: center;
+			align-items: center;
+			height: 100%;
+			padding: 0 15px;
+			min-width: 50px;
+			text-align: center;
+			background: rgba(255,255,255,0);
+			text-decoration: none;
+			color: #EEE;
+			will-change: background-color;
+
+			&:hover, &:active {
+				background: rgba(255,255,255,0.3);
+			}
+		}
+	}
+}

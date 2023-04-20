@@ -1,12 +1,5 @@
-#include <esp_wifi.h>
-#include <esp_event.h>
 #include <esp_log.h>
-#include <esp_system.h>
 #include <nvs_flash.h>
-#include <sys/param.h>
-#include "esp_netif.h"
-#include "esp_eth.h"
-#include "protocol_examples_common.h"
 #include <esp_http_server.h>
 
 static const char *WS_TAG = "WS";
@@ -93,14 +86,14 @@ static esp_err_t echo_handler(httpd_req_t *req)
             setConnected();
 
             if (voltage < voltageOkThreshold && voltage < voltageMaxThreshold) {
-                const char *buf = "{\"type\":\"show\",\"content\":\"Your power adapter is too weak, not enough power for the heater. \\n\\n Please, find a one with PD (Power Delivery) 30W or more.\"}";
-                httpd_ws_frame_t pkt;
-                memset(&pkt, 0, sizeof(httpd_ws_frame_t));
-                pkt.payload = (uint8_t *) buf;
-                pkt.type = HTTPD_WS_TYPE_TEXT;
-                pkt.len = strlen(buf);
-
-                ret = httpd_ws_send_frame(req, &pkt);
+//                const char *buf = "{\"type\":\"show\",\"content\":\"Your power adapter is too weak, not enough power for the heater. \\n\\n Please, find a one with PD (Power Delivery) 30W or more.\"}";
+//                httpd_ws_frame_t pkt;
+//                memset(&pkt, 0, sizeof(httpd_ws_frame_t));
+//                pkt.payload = (uint8_t *) buf;
+//                pkt.type = HTTPD_WS_TYPE_TEXT;
+//                pkt.len = strlen(buf);
+//
+//                ret = httpd_ws_send_frame(req, &pkt);
             }
         }
 

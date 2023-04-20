@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="full-screen" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Iskra Vaporizer">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <title>EfogTech Iskra</title>
+    <style>
+        input { margin-top: 12px; padding: 12px 24px; }
+    </style>
+</head>
+<body>
+<div><input id="file" type="file" multiple="multiple" name="image"></div>
+<div><input id="btn" type="button" value="Upload"></div>
+<script>
+    document.addEventListener('DOMContentLoaded', () => {
+        document.querySelector('#btn').addEventListener('click', (e) => {
+            e.preventDefault();
+            e.stopPropagation();
+
+            const req = new XMLHttpRequest();
+            req.open('POST', '/upload', true);
+            req.onload = (event) => {
+                location.reload()
+            };
+
+            req.send(document.querySelector('#file').files[0]);
+        })
+    })
+</script>
+</body>
+</html>
