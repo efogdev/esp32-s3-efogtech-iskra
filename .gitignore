@@ -4,3 +4,5 @@
 build
 cmake-build-debug
 
+server_certs/*
+

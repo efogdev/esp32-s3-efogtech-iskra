@@ -30,7 +30,11 @@ static const char *TAG = "EFOGTECH-ISKRA";
 static int usbVrefVoltage = -1;
 static int cc1 = -1, cc2 = -1;
 static int heaterTemperature = -1;
+static int waterTemperature = -1;
+static int radiatorTemperature = -1;
 static int targetTemperature = 220;
+static int peltierValue = 0;
+static int fanValue = 0;
 static bool isHeating = false;
 static bool isWaitingForConnection = true;
 
@@ -56,8 +60,10 @@ static bool isWaitingForConnection = true;
 #define RGB_CHANNEL_B LEDC_CHANNEL_5
 
 #define TEMP_ADC_CHANNEL ADC_CHANNEL_5
-#define USB_CC1_ADC_CHANNEL ADC_CHANNEL_7
-#define USB_CC2_ADC_CHANNEL ADC_CHANNEL_6
+#define WATER_TEMP_ADC_CHANNEL ADC_CHANNEL_4
+#define RADIATOR_TEMP_ADC_CHANNEL ADC_CHANNEL_6
+//#define USB_CC1_ADC_CHANNEL ADC_CHANNEL_6
+//#define USB_CC2_ADC_CHANNEL ADC_CHANNEL_7
 #define USB_VREF_ADC_CHANNEL ADC_CHANNEL_7
 
 #define GPIO_RGB_R 10
@@ -81,23 +87,35 @@ static bool isWaitingForConnection = true;
 #define GPIO_TR 16
 #define GPIO_NUM_TR GPIO_NUM_16
 
+#define GPIO_TR_WATER 15
+#define GPIO_NUM_TR_WATER GPIO_NUM_15
+
+#define GPIO_TR_RADIATOR 7
+#define GPIO_NUM_TR_RADIATOR GPIO_NUM_7
+
 #define GPIO_USB_VREF 8
 #define GPIO_NUM_USB_VREF GPIO_NUM_8
 
-#define GPIO_USB_CC1_VREF 18
-#define GPIO_NUM_USB_CC1_VREF GPIO_NUM_18
+#define GPIO_USB_CC1_VREF 17
+#define GPIO_NUM_USB_CC1_VREF GPIO_NUM_17
 
-#define GPIO_USB_CC2_VREF 17
-#define GPIO_NUM_USB_CC2_VREF GPIO_NUM_17
+#define GPIO_USB_CC2_VREF 18
+#define GPIO_NUM_USB_CC2_VREF GPIO_NUM_18
 
-#define GPIO_LED_0 0
-#define GPIO_NUM_LED_0 GPIO_NUM_0
+#define GPIO_LED_0 37
+#define GPIO_NUM_LED_0 GPIO_NUM_37
 
 #define GPIO_LED_1 48
 #define GPIO_NUM_LED_1 GPIO_NUM_48
 
 #define GPIO_RST_BTN 36
-#define GPIO_NUM_RST_BTN 36
+#define GPIO_NUM_RST_BTN GPIO_NUM_36
+
+#define GPIO_PD_CFG2 1
+#define GPIO_NUM_PD_CFG2 GPIO_NUM_1
+
+#define GPIO_PD_CFG3 2
+#define GPIO_NUM_PD_CFG3 GPIO_NUM_2
 
 #define MAX_HTTP_RECV_BUFFER 512
 #define MAX_HTTP_OUTPUT_BUFFER 2048
@@ -160,8 +178,11 @@ static void toggleHeating() {
 }
 
 static void setPeltierValue(int value) {
-    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, (int) ((value * PWM_MAX) / 255));
-    ledc_update_duty(PWM_MODE, PWM_CHANNEL_PELTIER);
+    peltierValue = value;
+}
+
+static void setFanValue(int value) {
+    fanValue = value;
 }
 
 static void initPwm() {
@@ -194,16 +215,17 @@ static void initPwm() {
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_heat));
 
-    ledc_channel_config_t ledc_peltier = {
-        .speed_mode     = PWM_MODE,
-        .channel        = PWM_CHANNEL_PELTIER,
-        .timer_sel      = LEDC_TIMER_0,
-        .intr_type      = LEDC_INTR_DISABLE,
-        .gpio_num       = GPIO_PELTIER,
-        .duty           = 0, 
-        .hpoint         = 0
-    };
-    ESP_ERROR_CHECK(ledc_channel_config(&ledc_peltier));
+//    ledc_channel_config_t ledc_peltier = {
+//        .speed_mode     = PWM_MODE,
+//        .channel        = PWM_CHANNEL_PELTIER,
+//        .timer_sel      = LEDC_TIMER_0,
+//        .intr_type      = LEDC_INTR_DISABLE,
+//        .gpio_num       = GPIO_PELTIER,
+//        .duty           = PWM_MAX,
+//        .hpoint         = 0,
+//        .flags.output_invert = 0
+//    };
+//    ESP_ERROR_CHECK(ledc_channel_config(&ledc_peltier));
 
     ledc_channel_config_t ledc_rgb_r = {
         .channel    = RGB_CHANNEL_R,
@@ -258,9 +280,11 @@ static void initAdc() {
         .atten = ADC_ATTEN_DB_11,
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, USB_VREF_ADC_CHANNEL, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, USB_CC1_ADC_CHANNEL, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, USB_CC2_ADC_CHANNEL, &config));
+//    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, USB_CC1_ADC_CHANNEL, &config));
+//    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, USB_CC2_ADC_CHANNEL, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, TEMP_ADC_CHANNEL, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, WATER_TEMP_ADC_CHANNEL, &config));
+    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &config));
 }
 
 static void http_rest(int data)
@@ -301,13 +325,11 @@ static void IRAM_ATTR makeJob() {
 
     adc_oneshot_read(adc1_handle, USB_VREF_ADC_CHANNEL, &usbVref);
     adc_oneshot_read(adc2_handle, TEMP_ADC_CHANNEL, &temperature);
+    adc_oneshot_read(adc2_handle, WATER_TEMP_ADC_CHANNEL, &waterTemperature);
+    adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &radiatorTemperature);
 
-    adc_oneshot_read(adc2_handle, USB_CC1_ADC_CHANNEL, &cc1);
-    adc_oneshot_read(adc2_handle, USB_CC2_ADC_CHANNEL, &cc2);
-
-    if (temperature <= 0 || usbVref <= 0) {
-        ESP_LOGI(TAG, "ADC ERROR!");
-    }
+//    adc_oneshot_read(adc2_handle, USB_CC1_ADC_CHANNEL, &cc1);
+//    adc_oneshot_read(adc2_handle, USB_CC2_ADC_CHANNEL, &cc2);
 
     usbVrefVoltage = usbVref;
     heaterTemperature = temperature;
@@ -315,28 +337,18 @@ static void IRAM_ATTR makeJob() {
     ws_update_voltage(usbVref, cc1, cc2);
     ws_update_temperature(temperature);
 
-    printf("USB VBUS data:\n");
-    printf("Voltage = %.2f\n", ((float) usbVref * 3.1) / pow(2, 12));
+//    printf("\n");
+//    printf("Voltage: RAW = %d, V = %.2f\n", usbVref, ((float) usbVref * 3.1) / pow(2, 12) * 10);
+//    printf("CC1 = %d, CC2 = %d\n", cc1, cc2);
 
-    printf("USB CC lines data:\n");
-    printf("CC1 = %d, CC2 = %d\n", cc1, cc2);
+    printf("%d %d %d\n", temperature, waterTemperature, radiatorTemperature);
 }
 
-static void http_test_task(void *pvParameters)
+static void pcb_led_task(void *pvParameters)
 {
-    bool level = 0;
-    int counter = 0;
-
-    gpio_set_level(GPIO_NUM_LED_1, 1);
-
     while (1) {
-        counter++;
-
-        if (counter % 7 == 0) {
-            // blink = work :)
-            level = level == 1 ? 0 : 1;
-            gpio_set_level(GPIO_NUM_LED_0, level);
-        }
+        gpio_set_level(GPIO_NUM_LED_0, usbVrefVoltage >= voltageOkThreshold);
+        gpio_set_level(GPIO_NUM_LED_1, usbVrefVoltage >= voltageMaxThreshold);
 
         makeJob();
         vTaskDelay(pdMS_TO_TICKS(100));
@@ -452,6 +464,66 @@ static void rgb_task(void *pvParameters)
     }
 }
 
+static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
+    int baseDelay = 32;
+    int state = 0;
+
+    while (1) {
+        if (peltierValue == 0) {
+            gpio_set_level(GPIO_NUM_PELTIER, 0);
+            vTaskDelay(pdMS_TO_TICKS(baseDelay * 16));
+            continue;
+        } else if (peltierValue == PWM_MAX) {
+            gpio_set_level(GPIO_NUM_PELTIER, 1);
+            vTaskDelay(pdMS_TO_TICKS(baseDelay * 32));
+            continue;
+        }
+
+        int delayTicks;
+
+        if (state == 0) {
+            state = 1;
+            delayTicks = peltierValue;
+        } else {
+            state = 0;
+            delayTicks = PWM_MAX - peltierValue;
+        }
+
+        gpio_set_level(GPIO_NUM_PELTIER, state);
+        vTaskDelay(pdMS_TO_TICKS(baseDelay * delayTicks));
+    }
+}
+
+static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
+    int baseDelay = 1;
+    int state = 0;
+
+    while (1) {
+        if (fanValue == 0) {
+            gpio_set_level(GPIO_NUM_FAN, 0);
+            vTaskDelay(pdMS_TO_TICKS(baseDelay * 16));
+            continue;
+        } else if (fanValue == PWM_MAX) {
+            gpio_set_level(GPIO_NUM_FAN, 1);
+            vTaskDelay(pdMS_TO_TICKS(baseDelay * 32));
+            continue;
+        }
+
+        int delayTicks;
+
+        if (state == 0) {
+            state = 1;
+            delayTicks = fanValue;
+        } else {
+            state = 0;
+            delayTicks = PWM_MAX - fanValue;
+        }
+
+        gpio_set_level(GPIO_NUM_FAN, state);
+        vTaskDelay(pdMS_TO_TICKS(baseDelay * delayTicks));
+    }
+}
+
 static void IRAM_ATTR report_task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(2000));
 
@@ -466,7 +538,7 @@ static void IRAM_ATTR report_task(void *pvParameters) {
         temperature = 1.0 / temperature;                 // Invert
         temperature -= 273.15;                         // convert absolute temp to C
 
-        heaterTemperature = (int) temperature;
+//        heaterTemperature = (int) temperature;
 
         if (isHeating) {
             if (temperature >= targetTemperature) {
@@ -485,12 +557,12 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         char buf[128];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"heat\":%s,\"t\":\"%d\",\"v\":\"%d\",\"cc1\":\"%d\",\"cc2\":\"%d\"}}",
+            "{\"type\":\"update\",\"content\":{\"heat\":%s,\"t\":\"%d\",\"t_h\":\"%d\",\"t_w\":\"%d\",\"t_r\":\"%d\"}}",
             isHeating ? "true" : "false",
             (int) temperature,
-            usbVrefVoltage,
-            cc1,
-            cc2
+            heaterTemperature,
+            waterTemperature,
+            radiatorTemperature
         );
 
         httpd_ws_frame_t pkt;
@@ -505,24 +577,6 @@ static void IRAM_ATTR report_task(void *pvParameters) {
     }
 }
 
-static QueueHandle_t gpio_evt_queue = NULL;
-
-static void IRAM_ATTR gpio_isr_handler(void* arg)
-{
-    uint32_t gpio_num = (uint32_t) arg;
-    xQueueSendFromISR(gpio_evt_queue, &gpio_num, NULL);
-}
-
-static void gpio_reset_task(void* arg)
-{
-    uint32_t io_num;
-    for(;;) {
-        if(xQueueReceive(gpio_evt_queue, &io_num, portMAX_DELAY)) {
-            esp_restart();
-        }
-    }
-}
-
 void app_main(void)
 {
     gpio_config_t io_conf = {};
@@ -530,14 +584,23 @@ void app_main(void)
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = (
             (1ULL << GPIO_NUM_HEAT)
-            | (1ULL << GPIO_NUM_PELTIER)  
-            | (1ULL << GPIO_NUM_RGB_R) 
+            | (1ULL << GPIO_NUM_PELTIER)
+            | (1ULL << GPIO_NUM_RGB_R)
             | (1ULL << GPIO_NUM_RGB_G) 
             | (1ULL << GPIO_NUM_RGB_B)
             | (1ULL << GPIO_NUM_LED_0) 
-            | (1ULL << GPIO_NUM_LED_1) 
-        );  
+            | (1ULL << GPIO_NUM_LED_1)
+            | (1ULL << GPIO_NUM_FAN)
+        );
     io_conf.pull_down_en = 1;
+    io_conf.pull_up_en = 0;
+    gpio_config(&io_conf);
+
+    io_conf.pin_bit_mask = (
+            (1ULL << GPIO_NUM_PD_CFG2)
+            | (1ULL << GPIO_NUM_PD_CFG3)
+        );
+    io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
@@ -550,34 +613,30 @@ void app_main(void)
 
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_INPUT;
-    io_conf.pin_bit_mask = 1ULL << GPIO_NUM_TR;
-    io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
-
-    io_conf.intr_type = GPIO_INTR_DISABLE;
-    io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pin_bit_mask = (
-        (1ULL << GPIO_NUM_USB_CC1_VREF) |
-        (1ULL << GPIO_NUM_USB_CC2_VREF)
+        (1ULL << GPIO_NUM_TR) |
+        (1ULL << GPIO_NUM_TR_WATER) |
+        (1ULL << GPIO_NUM_TR_RADIATOR)
     );
     io_conf.pull_down_en = 0;
-    io_conf.pull_up_en = 0;
-    gpio_config(&io_conf);
-
-    io_conf.intr_type = GPIO_INTR_POSEDGE;
-    io_conf.pin_bit_mask = 1ULL << GPIO_NUM_RST_BTN;
-    io_conf.mode = GPIO_MODE_INPUT;
     io_conf.pull_up_en = 1;
     gpio_config(&io_conf);
 
-    gpio_evt_queue = xQueueCreate(10, sizeof(uint32_t));
-    xTaskCreate(gpio_reset_task, "gpio_reset_task", 2048, NULL, 10, NULL);
+//    io_conf.intr_type = GPIO_INTR_DISABLE;
+//    io_conf.mode = GPIO_MODE_INPUT;
+//    io_conf.pin_bit_mask = (
+//        (1ULL << GPIO_NUM_USB_CC1_VREF) |
+//        (1ULL << GPIO_NUM_USB_CC2_VREF)
+//    );
+//    io_conf.pull_down_en = 0;
+//    io_conf.pull_up_en = 0;
+//    gpio_config(&io_conf);
 
-    gpio_install_isr_service(0);
-    gpio_isr_handler_add(GPIO_RST_BTN, gpio_isr_handler, (void*) GPIO_RST_BTN);
+    gpio_set_level(GPIO_NUM_FAN, 1);
+//    gpio_set_level(GPIO_NUM_PELTIER, 1);
 
-    gpio_set_level(GPIO_NUM_FAN, 0);
+    gpio_set_level(GPIO_NUM_PD_CFG2, 1);
+    gpio_set_level(GPIO_NUM_PD_CFG3, 0);
 
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
@@ -605,6 +664,11 @@ void app_main(void)
     ESP_LOGI(TAG, "Init load");
     setHeatValue(0);
     setPeltierValue(0);
+    setFanValue(12);
+
+    ESP_LOGI(TAG, "Init soft PWM");
+    xTaskCreate(&soft_pwm_task, "soft_pwm_task", 512, NULL, 6, NULL);
+    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 512, NULL, 6, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     xTaskCreate(&rgb_task, "rgb_task", 1024, NULL, 12, NULL);
@@ -613,5 +677,5 @@ void app_main(void)
     xTaskCreate(&report_task, "report_task", 2048, NULL, 15, NULL);
 
     ESP_LOGI(TAG, "Init everything");
-    xTaskCreate(&http_test_task, "http_test_task", 4096, NULL, 5, NULL);
+    xTaskCreate(&pcb_led_task, "pcb_led_task", 4096, NULL, 5, NULL);
 }
