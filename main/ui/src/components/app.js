@@ -4,18 +4,25 @@ import { Router } from 'preact-router';
 import Header from './header';
 import Home from './home';
 import Profile from './profile';
+import style from './style.less';
+import cn from 'classnames';
 
 window.store = {
 	isLoading: true,
 	isHeating: false,
-	temperature: -1,
-	voltage: '5V',
+	temperature: '?',
+	voltage: '?',
 	isVoltageOk: true,
 	isOnline: true,
+	cooling: false,
+	coolingTemperature: 25,
+	isModalOpened: false,
+	targetTemperature: 240,
 }
 
 window.emitter = new class EventEmitter {
 	handlers = [];
+	cache = {};
 
 	on(event, callback) {
 		this.handlers.push({ event, callback })
@@ -29,10 +36,8 @@ window.emitter = new class EventEmitter {
 		this.handlers.push({ event, callback, once: true })
 	}
 
-	emit(event, data = null) {
+	emit(event, data = null, nocache = false) {
 		const toRemove = []
-
-		console.log('[EVENT]', event, data)
 
 		this.handlers.forEach((it, index) => {
 			if (!it || !it.callback)
@@ -41,13 +46,73 @@ window.emitter = new class EventEmitter {
 			if (it.event !== event)
 				return
 
-			it.callback(data)
+			if (!nocache) {
+				if (this.cache[event] && this.cache[event].callback === it.callback && Object.keys(data).every((key, index) => data[key] === this.cache[event][key]))
+					return this
+
+				if (!this.cache[event])
+					this.cache[event] = []
+
+				if (this.cache[event].some(cacheItem => Object.keys(data).every(key => data[key] === cacheItem[key]) && cacheItem.callback === it.callback))
+					return
+
+				this.cache[event].push({ ...data, callback: it.callback })
+			}
+
+			console.log(`[EVENT]`, event, data)
+
+			try {
+				it.callback(data)
+			} catch (e) {}
+
+			console.log(`[STORE]`, window.store)
 
 			if (it.once)
 				toRemove.push(index)
 		})
 
 		this.handlers = this.handlers.filter((it, index) => !toRemove.includes(index))
+	}
+}
+
+class Overlay extends Component {
+	constructor(props) {
+		super(props)
+
+		this.state = {}
+		this.heat = this.heat.bind(this)
+	}
+
+	componentDidMount() {
+		window.emitter.on('refresh', () => {
+			setTimeout(() => this.forceUpdate())
+		})
+	}
+
+	heat() {
+		window.emitter.emit('update', { targetTemperature: this.state.text, isModalOpened: false, isLoading: true });
+
+		window.emitter.emit('send', `set t=${this.state.text}`)
+		window.emitter.emit('send', `heat`)
+	}
+
+	render() {
+		const { isModalOpened, text } = Object.assign({}, this.state, window.store)
+
+		return (
+			<div className={cn(style.overlay, { 'flex': isModalOpened })}>
+				<div className={style.modal}>
+					<div className={style.title}>Target temperature, °C:</div>
+					<div>
+						<input type="number" value={text} onChange={e => this.setState({ text: e.target.value })} />
+					</div>
+					<div>
+						<button onClick={this.heat}  className={style.primary}>Heat</button>
+						<button onClick={() => window.emitter.emit('update', { isModalOpened: false })} className={style.red}>Cancel</button>
+					</div>
+				</div>
+			</div>
+		)
 	}
 }
 
@@ -64,6 +129,15 @@ export default class App extends Component {
 				Object.assign(window.store, JSON.parse(localStorage.getItem('store')))
 			}
 		} catch (e) {}
+
+		window.emitter.on('update', data => {
+			const storeString = JSON.stringify(Object.values(window.store).sort())
+			Object.assign(window.store, data)
+
+			if (JSON.stringify(Object.values(window.store).sort()) !== storeString) {
+				window.emitter.emit('refresh', null, true)
+			}
+		})
 	}
 
 	handleRoute = e => {
@@ -73,6 +147,7 @@ export default class App extends Component {
 	render() {
 		return (
 			<div id="app">
+				<Overlay />
 				<Header />
 				<Router onChange={this.handleRoute}>
 					<Home path="/" />

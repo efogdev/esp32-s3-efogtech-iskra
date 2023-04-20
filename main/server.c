@@ -31,9 +31,9 @@ static void initWifi()
         .ap = {
             .ssid = WIFI_SSID,
             .ssid_len = strlen(WIFI_SSID),
-            .channel = 6,
+            .channel = WIFI_CHANNEL,
             .password = WIFI_PASS,
-            .max_connection = 3,
+            .max_connection = 1,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK,
             .pmf_cfg = {
                     .required = false,
@@ -182,15 +182,14 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
     Sets up a socket and listen for DNS queries,
     replies to all type A queries with the IP of the softAP
 */
-void dns_server_task(void *pvParameters)
+static IRAM_ATTR void dns_server_task(void *pvParameters)
 {
-    char rx_buffer[128];
+    char rx_buffer[256];
     char addr_str[128];
     int addr_family;
     int ip_protocol;
 
     while (1) {
-
         struct sockaddr_in dest_addr;
         dest_addr.sin_addr.s_addr = htonl(INADDR_ANY);
         dest_addr.sin_family = AF_INET;
@@ -247,11 +246,14 @@ void dns_server_task(void *pvParameters)
             shutdown(sock, 0);
             close(sock);
         }
+
+//        vTaskDelay(pdMS_TO_TICKS(60));
     }
+
     vTaskDelete(NULL);
 }
 
 void start_dns_server(void)
 {
-    xTaskCreate(dns_server_task, "dns_server", 4096, NULL, 5, NULL);
+    xTaskCreate(&dns_server_task, "dns_server", 8192, NULL, 4, NULL);
 }

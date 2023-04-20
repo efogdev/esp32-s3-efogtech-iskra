@@ -40,6 +40,7 @@ static int peltierValue = 0;
 static int fanValue = 0;
 static bool isHeating = false;
 static bool isWaitingForConnection = true;
+static const int voltageMaxThreshold = 1600;
 
 static esp_err_t start_file_server(httpd_handle_t);
 
@@ -332,22 +333,21 @@ static void IRAM_ATTR makeJob() {
     adc_oneshot_read(adc1_handle, USB_VREF_ADC_CHANNEL, &usbVref);
     adc_oneshot_read(adc2_handle, TEMP_ADC_CHANNEL, &temperature);
     adc_oneshot_read(adc2_handle, WATER_TEMP_ADC_CHANNEL, &waterTemperature);
-    adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &radiatorTemperature);
 
     usbVrefVoltage = usbVref;
     heaterTemperature = temperature;
 
-    ws_update_voltage(usbVref, cc1, cc2);
+    ws_update_voltage(usbVref);
     ws_update_temperature(temperature);
 }
 
 static void pcb_led_task(void *pvParameters)
 {
     while (1) {
-        gpio_set_level(GPIO_NUM_LED_0, usbVrefVoltage >= voltageOkThreshold);
+//        gpio_set_level(GPIO_NUM_LED_0, usbVrefVoltage >= voltageOkThreshold);
         gpio_set_level(GPIO_NUM_LED_1, usbVrefVoltage >= voltageMaxThreshold);
 
-        makeJob();
+//        makeJob();
         vTaskDelay(pdMS_TO_TICKS(100));
     }
 }
@@ -446,15 +446,15 @@ static httpd_handle_t start_webserver(void)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
     config.server_port = 80;
-    config.max_open_sockets = 6;
-    config.recv_wait_timeout = 180;
-    config.send_wait_timeout = 180;
-    config.keep_alive_idle = 180;
+    config.max_open_sockets = 5;
+    config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
+        start_dns_server();
+
         httpd_register_uri_handler(server, &ota);
         httpd_register_uri_handler(server, &manifest);
         httpd_register_uri_handler(server, &bundle);
@@ -464,6 +464,8 @@ static httpd_handle_t start_webserver(void)
         start_file_server(server);
 
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
+    } else {
+        esp_restart();
     }
 
     return server;
@@ -528,7 +530,7 @@ static void rgb_task(void *pvParameters)
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(10));
+        vTaskDelay(pdMS_TO_TICKS(24));
     }
 }
 
@@ -593,7 +595,7 @@ static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
 }
 
 static void IRAM_ATTR pd_task(void *pvParameters) {
-    vTaskDelay(pdMS_TO_TICKS(250));
+    vTaskDelay(pdMS_TO_TICKS(400));
 
     while (1) {
         gpio_set_level(GPIO_NUM_PD_CFG2, 1);
@@ -607,6 +609,11 @@ static void IRAM_ATTR report_task(void *pvParameters) {
     vTaskDelay(pdMS_TO_TICKS(2000));
 
     while (1) {
+        if (!webserver) {
+            vTaskDelay(pdMS_TO_TICKS(500));
+            continue;
+        }
+
         float ntcResistance = 5600 * (1 / (3.3 / ((3.3 * heaterTemperature) / 4096) - 1));
 
         float temperature;
@@ -621,7 +628,7 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         if (isHeating) {
             if (temperature >= targetTemperature) {
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.2);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             }
 
@@ -629,19 +636,19 @@ static void IRAM_ATTR report_task(void *pvParameters) {
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             } else if (temperature < targetTemperature) {
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.6);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             }
         }
 
-        char buf[128];
+        char buf[256];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"heat\":%s,\"t\":\"%d\",\"t_h\":\"%d\",\"t_w\":\"%d\",\"t_r\":\"%d\"}}",
+            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":\"%s\"}}",
             isHeating ? "true" : "false",
             (int) temperature,
-            heaterTemperature,
-            waterTemperature,
-            radiatorTemperature
+            (int) waterTemperature,
+            voltage > voltageMaxThreshold ? "20V" : "5V",
+            voltage > voltageMaxThreshold ? "true" : "false"
         );
 
         httpd_ws_frame_t pkt;
@@ -653,6 +660,11 @@ static void IRAM_ATTR report_task(void *pvParameters) {
         ws_send_frame_to_all_clients(&pkt, webserver);
 
         vTaskDelay(pdMS_TO_TICKS(250));
+
+        uint32_t freeRam = esp_get_free_heap_size();
+        ESP_LOGI(TAG, "Free heap: %d", (int) freeRam);
+
+        makeJob();
     }
 }
 
@@ -707,9 +719,6 @@ void app_main(void)
     io_conf.pull_up_en = 1;
     gpio_config(&io_conf);
 
-//    gpio_set_level(GPIO_NUM_PD_CFG2, 0);
-//    gpio_set_level(GPIO_NUM_PD_CFG3, 1);
-
     esp_err_t ret = nvs_flash_init();
     if (ret == ESP_ERR_NVS_NO_FREE_PAGES || ret == ESP_ERR_NVS_NEW_VERSION_FOUND) {
       ESP_ERROR_CHECK(nvs_flash_erase());
@@ -725,31 +734,28 @@ void app_main(void)
     ESP_LOGI(TAG, "Init PWM");
     initPwm();
 
-    ESP_LOGI(TAG, "Init server");
-    webserver = start_webserver();
+    ESP_LOGI(TAG, "Init load");
+    setHeatValue(0);
+    setPeltierValue(0);
+    setFanValue(0);
 
-    ESP_LOGI(TAG, "Init DNS");
-    start_dns_server();
+    ESP_LOGI(TAG, "Init soft PWM");
+    xTaskCreate(&soft_pwm_task, "soft_pwm_task", 1024, NULL, 6, NULL);
+    xTaskCreate(&pd_task, "pd_task", 8192 * 2, NULL, 2, NULL);
+    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 1024, NULL, 6, NULL);
+
+    ESP_LOGI(TAG, "Init RGB");
+    xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
+
+    ESP_LOGI(TAG, "Init report service");
+    xTaskCreate(&report_task, "report_task", 2048, NULL, 8, NULL);
+
+    ESP_LOGI(TAG, "Init everything");
+    xTaskCreate(&pcb_led_task, "pcb_led_task", 4096, NULL, 5, NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();
 
-    ESP_LOGI(TAG, "Init load");
-    setHeatValue(0);
-    setPeltierValue(0);
-    setFanValue(12);
-
-    ESP_LOGI(TAG, "Init soft PWM");
-    xTaskCreate(&soft_pwm_task, "soft_pwm_task", 512, NULL, 6, NULL);
-    xTaskCreate(&pd_task, "pd_task", 512, NULL, 15, NULL);
-    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 512, NULL, 6, NULL);
-
-    ESP_LOGI(TAG, "Init RGB");
-    xTaskCreate(&rgb_task, "rgb_task", 1024, NULL, 12, NULL);
-
-    ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 2048, NULL, 15, NULL);
-
-    ESP_LOGI(TAG, "Init everything");
-    xTaskCreate(&pcb_led_task, "pcb_led_task", 4096, NULL, 5, NULL);
+    ESP_LOGI(TAG, "Init server");
+    webserver = start_webserver();
 }

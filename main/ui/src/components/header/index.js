@@ -39,25 +39,25 @@ export default class Header extends Component {
 	}
 
 	componentDidMount() {
-		window.emitter.on('update', (data) => {
-			this.setState(data)
+		window.emitter.on('refresh', () => {
+			setTimeout(() => this.forceUpdate())
 		})
 	}
 
-	render(props, state, context) {
-		const data = this.state || context
+	render(props) {
+		const { isHeating, isVoltageOk, isOnline, isLoading } = Object.assign({}, this.state, window.store)
 
 		return (
 			<header class={style.header}>
 				<h1>
-					{!data.isVoltageOk && <PowerSupplyIcon />}
+					{!isVoltageOk && <PowerSupplyIcon />}
 
-					{data.isOnline && <WifiGoodIcon />}
-					{!data.isOnline && <WifiBadIcon />}
+					{isOnline && <WifiGoodIcon />}
+					{!isOnline && <WifiBadIcon />}
 
-					<Icon heating={data.isHeating} />
+					<Icon heating={isHeating} />
 
-					{data.isLoading && <LoadingIcon />}
+					{isLoading && <LoadingIcon />}
 				</h1>
 				<nav>
 					<Link href="/">Home</Link>

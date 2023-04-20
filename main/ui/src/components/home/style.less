@@ -1,7 +1,68 @@
 @import '~style/helpers';
 
 .home {
-	padding: 56px 20px;
 	min-height: 100%;
 	width: 100%;
+	display: flex;
+	flex-direction: column;
+	align-items: center;
+	justify-content: center;
+
+	.card {
+		flex: 1 1 50%;
+		padding: 24px;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		position: relative;
+	}
+
+	.status {
+		max-width: 80%;
+		object-fit: contain;
+	}
+
+	.label {
+		position: absolute;
+		width: auto;
+		padding: 0 12px;
+		padding-top: 2px;
+		height: 34px;
+		background: #fefefe;
+		border-radius: 12px;
+		box-shadow: 0 0 3px 0 #444a;
+		display: flex;
+		justify-content: center;
+		align-items: center;
+		font-size: 14px;
+		line-height: 14px;
+		letter-spacing: 0.08rem;
+
+		&.status_voltage {
+			top: 64%;
+			right: 50%;
+			font-size: 14px;
+			line-height: 14px;
+			color: #249e24;
+		}
+
+		&.status_temp {
+			top: 40%;
+			right: 16%;
+			color: #9e1d1d;
+		}
+
+		&.status_cooling {
+			top: 36%;
+			left: 8%;
+			color: #666;
+		}
+	}
 }
+
+@media (orientation: landscape) {
+	.home {
+		flex-direction: row;
+	}
+}
+
