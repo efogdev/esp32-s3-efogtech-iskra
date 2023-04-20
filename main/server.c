@@ -1,3 +1,4 @@
+#include <arpa/inet.h>
 #include <string.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -17,6 +18,7 @@
 #define WIFI_SSID      "Iskra Vaporizer"
 #define WIFI_PASS      "efogtech"
 #define WIFI_CHANNEL   7
+#define DNS    "DNS"
 
 // static const char *TAG = "EFOGTECH-ISKRA";
 
@@ -170,6 +172,10 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
 
             esp_netif_ip_info_t ip_info;
             esp_netif_get_ip_info(esp_netif_get_handle_from_ifkey("WIFI_AP_DEF"), &ip_info);
+
+            struct in_addr ip_addr;
+            ip_addr.s_addr = ip_info.ip.addr;
+            ESP_LOGI(DNS, "Host IP: %s", inet_ntoa(ip_addr));
 
             answer->addr_len = htons(sizeof(ip_info.ip.addr));
             answer->ip_addr = ip_info.ip.addr;

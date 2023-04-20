@@ -33,12 +33,14 @@ static const char *TAG = "EFOGTECH-ISKRA";
 static int usbVrefVoltage = -1;
 static int cc1 = -1, cc2 = -1;
 static int heaterTemperature = -1;
+static int heaterPwm = 1;
 static int waterTemperature = -1;
 static int radiatorTemperature = -1;
 static int targetTemperature = 220;
 static int peltierValue = 0;
-static int fanValue = 0;
+static int fanValue = 16;
 static bool isHeating = false;
+static bool isCooling = false;
 static bool isWaitingForConnection = true;
 static const int voltageMaxThreshold = 1600;
 
@@ -184,6 +186,32 @@ static void toggleHeating() {
     }
 }
 
+static void startCooling() {
+    fanValue = 16;
+    isCooling = true;
+
+    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, PWM_MAX * (peltierValue / 32) * 0.5);
+    ledc_update_duty(PWM_MODE, PWM_CHANNEL_PELTIER);
+}
+
+static void stopCooling() {
+    fanValue = 0;
+    isCooling = false;
+
+    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, 0);
+    ledc_update_duty(PWM_MODE, PWM_CHANNEL_PELTIER);
+}
+
+static void toggleCooling() {
+    isCooling = !isCooling;
+
+    if (isCooling) {
+        startCooling();
+    } else {
+        stopCooling();
+    }
+}
+
 static void setPeltierValue(int value) {
     peltierValue = value;
 }
@@ -222,18 +250,6 @@ static void initPwm() {
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_heat));
 
-//    ledc_channel_config_t ledc_peltier = {
-//        .speed_mode     = PWM_MODE,
-//        .channel        = PWM_CHANNEL_PELTIER,
-//        .timer_sel      = LEDC_TIMER_0,
-//        .intr_type      = LEDC_INTR_DISABLE,
-//        .gpio_num       = GPIO_PELTIER,
-//        .duty           = PWM_MAX,
-//        .hpoint         = 0,
-//        .flags.output_invert = 0
-//    };
-//    ESP_ERROR_CHECK(ledc_channel_config(&ledc_peltier));
-
     ledc_channel_config_t ledc_rgb_r = {
         .channel    = RGB_CHANNEL_R,
         .duty       = 0,
@@ -267,8 +283,6 @@ static void initPwm() {
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_rgb_r));
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_rgb_g));
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_rgb_b));
-
-    // ledc_fade_func_install(0);
 }
 
 static void initAdc() {
@@ -287,44 +301,8 @@ static void initAdc() {
         .atten = ADC_ATTEN_DB_11,
     };
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, USB_VREF_ADC_CHANNEL, &config));
-//    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, USB_CC1_ADC_CHANNEL, &config));
-//    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, USB_CC2_ADC_CHANNEL, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, TEMP_ADC_CHANNEL, &config));
-    ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, WATER_TEMP_ADC_CHANNEL, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &config));
-}
-
-static void http_rest(int data)
-{
-    char local_response_buffer[MAX_HTTP_OUTPUT_BUFFER] = {0};
-   
-    esp_http_client_config_t config = {
-        // .host = "efog.tech",
-        // .path = "/api/batmon",
-        // .query = "update",
-        .event_handler = _http_event_handler,
-        .user_data = local_response_buffer,        // Pass address of local buffer to get response
-        .disable_auto_redirect = true,
-    };
-    esp_http_client_handle_t client = esp_http_client_init(&config);
-
-    char post_data[32];
-    sprintf(post_data, "{\"test\":%d}", data);
-    esp_http_client_set_url(client, "http://efog.tech/api/batmon/update");
-    esp_http_client_set_method(client, HTTP_METHOD_POST);
-    esp_http_client_set_header(client, "Content-Type", "application/json");
-    esp_http_client_set_post_field(client, post_data, strlen(post_data));
-    esp_err_t err = esp_http_client_perform(client);
-    if (err == ESP_OK) {
-        ESP_LOGI(TAG, "HTTP POST Status = %d, content_length = %lld",
-                esp_http_client_get_status_code(client),
-                esp_http_client_get_content_length(client));
-    } else {
-        ESP_LOGE(TAG, "HTTP POST request failed: %s", esp_err_to_name(err));
-    }
-
-
-    esp_http_client_cleanup(client);
 }
 
 static void IRAM_ATTR makeJob() {
@@ -332,7 +310,7 @@ static void IRAM_ATTR makeJob() {
 
     adc_oneshot_read(adc1_handle, USB_VREF_ADC_CHANNEL, &usbVref);
     adc_oneshot_read(adc2_handle, TEMP_ADC_CHANNEL, &temperature);
-    adc_oneshot_read(adc2_handle, WATER_TEMP_ADC_CHANNEL, &waterTemperature);
+    adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &waterTemperature);
 
     usbVrefVoltage = usbVref;
     heaterTemperature = temperature;
@@ -344,11 +322,8 @@ static void IRAM_ATTR makeJob() {
 static void pcb_led_task(void *pvParameters)
 {
     while (1) {
-//        gpio_set_level(GPIO_NUM_LED_0, usbVrefVoltage >= voltageOkThreshold);
         gpio_set_level(GPIO_NUM_LED_1, usbVrefVoltage >= voltageMaxThreshold);
-
-//        makeJob();
-        vTaskDelay(pdMS_TO_TICKS(100));
+        vTaskDelay(pdMS_TO_TICKS(4000));
     }
 }
 
@@ -535,18 +510,27 @@ static void rgb_task(void *pvParameters)
 }
 
 static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
-    int baseDelay = 32;
+    int baseDelay = 4;
     int state = 0;
 
     while (1) {
+        if (!isCooling) {
+            gpio_set_level(GPIO_NUM_PELTIER, 0);
+            vTaskDelay(pdMS_TO_TICKS(600));
+        }
+
         if (peltierValue == 0) {
             gpio_set_level(GPIO_NUM_PELTIER, 0);
             vTaskDelay(pdMS_TO_TICKS(baseDelay * 16));
             continue;
         } else if (peltierValue == PWM_MAX) {
             gpio_set_level(GPIO_NUM_PELTIER, 1);
-            vTaskDelay(pdMS_TO_TICKS(baseDelay * 32));
+            vTaskDelay(pdMS_TO_TICKS(baseDelay * 2));
             continue;
+        }
+
+        if (isHeating && heaterPwm < PWM_MAX / 2) {
+            peltierValue = PWM_MAX;
         }
 
         int delayTicks;
@@ -565,13 +549,13 @@ static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
 }
 
 static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
-    int baseDelay = 64;
+    int baseDelay = 1;
     int state = 0;
 
     while (1) {
         if (fanValue == 0) {
             gpio_set_level(GPIO_NUM_FAN, 0);
-            vTaskDelay(pdMS_TO_TICKS(baseDelay * 16));
+            vTaskDelay(pdMS_TO_TICKS(baseDelay * 64));
             continue;
         } else if (fanValue == PWM_MAX) {
             gpio_set_level(GPIO_NUM_FAN, 1);
@@ -610,7 +594,7 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
     while (1) {
         if (!webserver) {
-            vTaskDelay(pdMS_TO_TICKS(500));
+            vTaskDelay(pdMS_TO_TICKS(200));
             continue;
         }
 
@@ -633,9 +617,15 @@ static void IRAM_ATTR report_task(void *pvParameters) {
             }
 
             if (temperature < targetTemperature / 2) {
+                heaterPwm = PWM_MAX;
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-            } else if (temperature < targetTemperature) {
+            } else if (temperature < targetTemperature - 20) {
+                heaterPwm = PWM_MAX * 0.85;
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.85);
+                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+            } else {
+                heaterPwm = PWM_MAX * 0.6;
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.6);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             }
@@ -643,12 +633,13 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         char buf[256];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":\"%s\"}}",
+            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":\"%s\",\"isCooling\":\"%s\"}}",
             isHeating ? "true" : "false",
             (int) temperature,
             (int) waterTemperature,
             voltage > voltageMaxThreshold ? "20V" : "5V",
-            voltage > voltageMaxThreshold ? "true" : "false"
+            voltage > voltageMaxThreshold ? "true" : "false",
+            isCooling ? "true" : "false"
         );
 
         httpd_ws_frame_t pkt;
@@ -659,10 +650,10 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         ws_send_frame_to_all_clients(&pkt, webserver);
 
-        vTaskDelay(pdMS_TO_TICKS(250));
+        vTaskDelay(pdMS_TO_TICKS(120));
 
-        uint32_t freeRam = esp_get_free_heap_size();
-        ESP_LOGI(TAG, "Free heap: %d", (int) freeRam);
+//        uint32_t freeRam = esp_get_free_heap_size();
+//        ESP_LOGI(TAG, "Free heap: %d", (int) freeRam);
 
         makeJob();
     }
@@ -736,13 +727,13 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init load");
     setHeatValue(0);
-    setPeltierValue(0);
-    setFanValue(0);
+    setPeltierValue(18);
+    setFanValue(16);
 
     ESP_LOGI(TAG, "Init soft PWM");
     xTaskCreate(&soft_pwm_task, "soft_pwm_task", 1024, NULL, 6, NULL);
     xTaskCreate(&pd_task, "pd_task", 8192 * 2, NULL, 2, NULL);
-    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 1024, NULL, 6, NULL);
+    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 1024, NULL, 14, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
@@ -751,7 +742,7 @@ void app_main(void)
     xTaskCreate(&report_task, "report_task", 2048, NULL, 8, NULL);
 
     ESP_LOGI(TAG, "Init everything");
-    xTaskCreate(&pcb_led_task, "pcb_led_task", 4096, NULL, 5, NULL);
+    xTaskCreate(&pcb_led_task, "pcb_led_task", 512, NULL, 14 , NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();

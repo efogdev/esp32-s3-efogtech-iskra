@@ -53,9 +53,52 @@
 		}
 
 		&.status_cooling {
-			top: 36%;
+			top: 42%;
 			left: 8%;
 			color: #666;
+			height: auto;
+			padding: 8px;
+			border-radius: 24px;
+			opacity: 1;
+			transition: opacity .7s ease, box-shadow .7s ease;
+
+			.progress {
+				width: 48px;
+				height: 48px;
+				background: url("data:image/svg+xml;base64,PD94bWwgdmVyc2lvbj0iMS4wIiA/Pjxzdmcgdmlld0JveD0iMCAwIDMyIDMyIiB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciPjxkZWZzPjxzdHlsZT4uY2xzLTF7ZmlsbDojMjg5M2VhO308L3N0eWxlPjwvZGVmcz48dGl0bGUvPjxnIGlkPSJTbm93Zmxha2UiPjxwYXRoIGNsYXNzPSJjbHMtMSIgZD0iTTI3LjQxLDIxLjUyLDI0LjIsMTkuOTRsMy4wNy0xYTEsMSwwLDAsMC0uNjUtMS45bC01LDEuNjlMMTksMTcuMzhWMTQuNjJsMi42Ni0xLjMxLDUsMS42OWExLDEsMCwwLDAsLjY1LTEuOWwtMy4wNy0xLDMuMjEtMS41OGExLDEsMCwxLDAtLjg4LTEuOGwtMy4yMiwxLjU5LDEtMy4wN2ExLDEsMCwwLDAtMS44OS0uNjVsLTEuNjksNUwxOCwxMi44OGwtMS0uNXYtM2wzLjcxLTMuN2ExLDEsMCwxLDAtMS40Mi0xLjQyTDE3LDYuNTlWM2ExLDEsMCwwLDAtMiwwVjYuNTlsLTIuMjktMi4zYTEsMSwwLDAsMC0xLjQyLDEuNDJMMTUsOS40MXYzbC0xLC41LTIuNzctMS4zNi0xLjY5LTVhMSwxLDAsMSwwLTEuODkuNjVsMSwzLjA3TDUuNDcsOC42OGExLDEsMCwxLDAtLjg4LDEuOEw3LjgsMTIuMDZsLTMuMDcsMUExLDEsMCwwLDAsNS4zOCwxNWw1LTEuNjlMMTMsMTQuNjJ2Mi43NmwtMi42NiwxLjMxTDUuMzgsMTdhMSwxLDAsMCwwLS42NSwxLjlsMy4wNywxTDQuNTksMjEuNTJhMSwxLDAsMCwwLC44OCwxLjhsMy4yMi0xLjU5LTEsMy4wN2ExLDEsMCwwLDAsMS44OS42NWwxLjY5LTVMMTQsMTkuMTJsMSwuNXYzbC0zLjcxLDMuN2ExLDEsMCwwLDAsMS40MiwxLjQyTDE1LDI1LjQxVjI5YTEsMSwwLDAsMCwyLDBWMjUuNDFsMi4yOSwyLjNhMSwxLDAsMCwwLDEuNDItMS40MkwxNywyMi41OXYtM2wxLS41LDIuNzcsMS4zNiwxLjY5LDVhMSwxLDAsMCwwLDEuODktLjY1bC0xLTMuMDcsMy4yMiwxLjU5YTEsMSwwLDEsMCwuODgtMS44WiIvPjwvZz48L3N2Zz4=");
+				transition: opacity .7s ease, box-shadow .7s ease;
+				opacity: 1;
+			}
+
+			&.stage_1 {
+				opacity: .7;
+				box-shadow: inset 0 0 8px #217fc3, 2px 2px 2px 0 #1144a5;
+				.progress { opacity: .6; }
+			}
+
+			&.stage_2 {
+				opacity: .8;
+				box-shadow: inset 0 0 14px #217fc3, 2px 2px 2px 0 #1144a5;
+				.progress { opacity: .7; }
+			}
+
+			&.stage_3 {
+				opacity: .8;
+				box-shadow: inset 0 0 18px #217fc3, 2px 2px 2px 0 #1144a5;
+				.progress { opacity: .8; }
+			}
+
+			&.stage_4 {
+				opacity: .9;
+				box-shadow: inset 0 0 22px #217fc3, 2px 2px 2px 0 #1144a5;
+				.progress { opacity: .9; }
+			}
+
+			&.stage_5 {
+				opacity: 1;
+				box-shadow: inset 0 0 28px #217fc3, 2px 2px 2px 0 #1144a5;
+				.progress { opacity: 1; }
+			}
 		}
 	}
 }

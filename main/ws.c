@@ -7,6 +7,7 @@ static int voltage = 0;
 static int _temperature = 0;
 
 static void toggleHeating();
+static void toggleCooling();
 static void setConnected();
 static void setTargetTemperature(int);
 
@@ -88,6 +89,12 @@ static esp_err_t echo_handler(httpd_req_t *req)
             ESP_LOGI(WS_TAG, "Heat toggle request.");
 
             toggleHeating();
+        }
+
+        if (strcmp((const char *) ws_pkt.payload, "cool") == 0) {
+            ESP_LOGI(WS_TAG, "Peltier toggle request.");
+
+            toggleCooling();
         }
 
         if (strncmp((const char *) ws_pkt.payload, "set", 3) == 0) {

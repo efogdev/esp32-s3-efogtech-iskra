@@ -14,8 +14,8 @@ window.store = {
 	voltage: '?',
 	isVoltageOk: true,
 	isOnline: true,
-	cooling: false,
-	coolingTemperature: 25,
+	isCooling: false,
+	coolingTemperature: 4095,
 	isModalOpened: false,
 	targetTemperature: 240,
 }
@@ -80,6 +80,7 @@ class Overlay extends Component {
 		super(props)
 
 		this.state = {}
+
 		this.heat = this.heat.bind(this)
 	}
 
@@ -90,21 +91,27 @@ class Overlay extends Component {
 	}
 
 	heat() {
-		window.emitter.emit('update', { targetTemperature: this.state.text, isModalOpened: false, isLoading: true });
+		const text = parseInt(document.querySelector('#modal-input').value)
 
-		window.emitter.emit('send', `set t=${this.state.text}`)
+		if (isNaN(text) || text < 120 || text > 320)
+			return alert(`Sorry, but the limit is 120-320°C.`)
+
+		window.emitter.emit('update', { targetTemperature: text, isModalOpened: false, isLoading: true, isHeating: true });
+
+		window.emitter.emit('send', `set t=${text}`)
 		window.emitter.emit('send', `heat`)
 	}
 
 	render() {
-		const { isModalOpened, text } = Object.assign({}, this.state, window.store)
+		const { isModalOpened } = Object.assign({}, this.state, window.store)
 
 		return (
 			<div className={cn(style.overlay, { 'flex': isModalOpened })}>
 				<div className={style.modal}>
-					<div className={style.title}>Target temperature, °C:</div>
+					<div className={style.title}>Target temperature:</div>
 					<div>
-						<input type="number" value={text} onChange={e => this.setState({ text: e.target.value })} />
+						{/* :D */}
+						<input placeholder="120-320°C" type="number" id="modal-input" />
 					</div>
 					<div>
 						<button onClick={this.heat}  className={style.primary}>Heat</button>
