@@ -38,7 +38,7 @@ static int waterTemperature = -1;
 static int radiatorTemperature = -1;
 static int targetTemperature = 220;
 static int peltierValue = 0;
-static int fanValue = 16;
+static int fanValue = 10;
 static bool isHeating = false;
 static bool isCooling = false;
 static bool isWaitingForConnection = true;
@@ -190,12 +190,12 @@ static void startCooling() {
     fanValue = 16;
     isCooling = true;
 
-    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, PWM_MAX * (peltierValue / 32) * 0.5);
+    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, PWM_MAX * (peltierValue / 32) * 0.7);
     ledc_update_duty(PWM_MODE, PWM_CHANNEL_PELTIER);
 }
 
 static void stopCooling() {
-    fanValue = 0;
+    fanValue = 10;
     isCooling = false;
 
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, 0);
@@ -727,8 +727,8 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init load");
     setHeatValue(0);
-    setPeltierValue(22);
-    setFanValue(16);
+    setPeltierValue(28);
+    setFanValue(12);
 
     ESP_LOGI(TAG, "Init soft PWM");
     xTaskCreate(&soft_pwm_task, "soft_pwm_task", 1024, NULL, 6, NULL);
