@@ -80,8 +80,6 @@ class Overlay extends Component {
 		super(props)
 
 		this.state = {}
-
-		this.heat = this.heat.bind(this)
 	}
 
 	componentDidMount() {
@@ -98,8 +96,8 @@ class Overlay extends Component {
 
 		window.emitter.emit('update', { targetTemperature: text, isModalOpened: false, isLoading: true, isHeating: true });
 
-		window.emitter.emit('send', `set t=${text}`)
-		window.emitter.emit('send', `heat`)
+		window.emitter.emit('send', `set t=${text}`, true)
+		window.emitter.emit('send', `heat`, true)
 	}
 
 	render() {

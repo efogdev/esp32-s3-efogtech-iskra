@@ -2,19 +2,29 @@ import { h, render } from 'preact';
 import './style';
 
 const OFFLINE_THRESHOLD_MS = 3000;
+let interval = -1;
 
 class API {
 	ws = null;
 
 	constructor() {
+		this.init()
+	}
+
+	init() {
+		clearInterval(interval);
+
 		this.ws = new WebSocket("ws://192.168.4.1/ws");
+
+		this.ws.onclose = this.init.bind(null);
+		this.ws.onerror = this.init.bind(null);
+
+		window.emitter.on('send', (data) => {
+			this.ws.send(data.toString());
+		});
 
 		this.ws.onopen = () => setTimeout(() => {
 			this.ws.send('on');
-
-			window.emitter.on('send', (data) => {
-				this.ws.send(data);
-			});
 		}, 300);
 
 		this.ws.onmessage = (e) => {
@@ -44,23 +54,13 @@ class API {
 			} catch (e) { alert(e) }
 		};
 
-		const updateTemperature = (t = window.store.t) => {
+		const updateTemperature = () => {
 			window.emitter.emit('update', { isOffline: (window.store.update || Date.now()) - Date.now() > OFFLINE_THRESHOLD_MS })
-
-			let temperature = parseInt(t)
-			if (temperature < 25) temperature = 25
 		};
 
-		setInterval(() => {
+		interval = setInterval(() => {
 			updateTemperature()
-		}, 500)
-
-		// startButton.addEventListener('click', () => {
-		// 	this.ws.send('heat');
-		// });
-
-
-		// this.ws.send('set t=' + value);
+		}, 1500)
 	}
 }
 

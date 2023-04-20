@@ -633,7 +633,7 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         char buf[256];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":\"%s\",\"isCooling\":\"%s\"}}",
+            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"isCooling\":%s}}",
             isHeating ? "true" : "false",
             (int) temperature,
             (int) waterTemperature,
@@ -727,7 +727,7 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init load");
     setHeatValue(0);
-    setPeltierValue(18);
+    setPeltierValue(22);
     setFanValue(16);
 
     ESP_LOGI(TAG, "Init soft PWM");

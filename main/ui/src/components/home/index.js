@@ -20,27 +20,32 @@ export default class Home extends Component {
 	}
 
 	componentDidMount() {
-		window.emitter.on('refresh', (data) => {
+		window.emitter.on('refresh', () => {
 			setTimeout(() => this.forceUpdate())
 		})
 	}
 
-	heat() {
-		if (window.store.isHeating) {
-			setTimeout(() => window.emitter.emit('send', `heat`))
-			window.emitter.emit('update', { isHeating: false })
-		} else {
-			window.emitter.emit('update', { isModalOpened: true })
-		}
-	}
-
-	cool() {
-		window.emitter.emit('send', 'cool')
-		window.emitter.emit('update', { isCooling: true, isLoading: true })
-	}
-
 	render() {
 		const { temperature, voltage, isCooling, coolingTemperature } = Object.assign({}, this.state, window.store)
+
+		const cool = () => {
+			console.log('Cool');
+
+			window.emitter.emit('send', 'cool', true)
+			window.emitter.emit('update', { isCooling: !window.store.isCooling, isLoading: true })
+		}
+
+		const heat = () => {
+			console.log('Heat');
+
+			if (window.store.isHeating) {
+				window.emitter.emit('send', `set t=0`, true)
+				window.emitter.emit('send', `heat`, true)
+				window.emitter.emit('update', { isHeating: false })
+			} else {
+				window.emitter.emit('update', { isModalOpened: true })
+			}
+		}
 
 		const stages = 5
 		const coolingMin = 4095, coolingMax = 3540
@@ -57,8 +62,8 @@ export default class Home extends Component {
 					<IskraIcon />
 
 					<StatusLabel className={style.status_voltage} text={voltage} />
-					<StatusLabel onClick={() => this.heat()} className={style.status_temp} text={`${temperature}°C`} />
-					<StatusLabel onClick={() => this.cool()} className={cn(style.status_cooling, isCooling && lastStage)} text={<div className={style.progress} />} />
+					<StatusLabel onClick={heat} className={style.status_temp} text={`${temperature}°C`} />
+					<StatusLabel onClick={cool} className={cn(style.status_cooling, isCooling && lastStage)} text={<div className={style.progress} />} />
 				</div>
 
 				<div className={style.card}>
