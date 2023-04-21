@@ -1,20 +1,61 @@
 @import '~style/helpers';
 
 .home {
-	min-height: 100%;
+	max-height: calc(100vh - 56px);
+	height: calc(100vh - 56px);
+	margin-top: 56px;
 	width: 100%;
 	display: flex;
 	flex-direction: column;
-	align-items: center;
-	justify-content: center;
+
+	.red {
+		color: red;
+	}
+
+	.yellow {
+		color: #fa9725;
+	}
+
+	.green {
+		color: #249e24;
+	}
 
 	.card {
 		flex: 1 1 50%;
-		padding: 24px;
+		padding: 40px;
 		display: flex;
-		align-items: center;
 		justify-content: center;
 		position: relative;
+		flex-direction: row;
+
+		&:first-child {
+			padding-top: 64px;
+		}
+
+		.column {
+			flex: 1 1 50%;
+			min-width: 50%;
+			padding: 0 12px;
+			display: flex;
+			flex-direction: column;
+			justify-content: center;
+			align-items: center;
+		}
+	}
+
+	.tag {
+		margin-bottom: 10px;
+		font-size: 15px;
+
+		span:first-child {
+			color: #673ab7;
+			font-weight: bold;
+			margin-right: 8px;
+		}
+
+		span:last-child {
+
+		}
 	}
 
 	.status {
@@ -43,13 +84,11 @@
 			right: 50%;
 			font-size: 14px;
 			line-height: 14px;
-			color: #249e24;
 		}
 
 		&.status_temp {
 			top: 40%;
 			right: 16%;
-			color: #9e1d1d;
 		}
 
 		&.status_cooling {
@@ -106,6 +145,13 @@
 @media (orientation: landscape) {
 	.home {
 		flex-direction: row;
+		align-items: center;
+		justify-content: center;
 	}
 }
 
+@media (orientation: portrait) {
+	.home {
+
+	}
+}

@@ -8,7 +8,17 @@ class API {
 	ws = null;
 
 	constructor() {
-		this.init()
+		this.tryInit()
+	}
+
+	tryInit() {
+		try {
+			this.init()
+		} catch (e) {
+			setTimeout(() => {
+				this.tryInit()
+			}, 5000)
+		}
 	}
 
 	init() {

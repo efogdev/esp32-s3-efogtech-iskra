@@ -97,6 +97,10 @@ static esp_err_t echo_handler(httpd_req_t *req)
             toggleCooling();
         }
 
+        if (strcmp((const char *) ws_pkt.payload, "reboot") == 0) {
+            esp_restart();
+        }
+
         if (strncmp((const char *) ws_pkt.payload, "set", 3) == 0) {
             ESP_LOGI(WS_TAG, "Set target temperature.");
 

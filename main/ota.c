@@ -17,6 +17,7 @@
 #define BUFFSIZE 8192
 static char ota_write_data[BUFFSIZE + 1] = {0};
 
+static void disable_all();
 static const char *OTA_TAG = "OTA";
 
 static esp_err_t upload_post_handler(httpd_req_t *req)
@@ -131,6 +132,7 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
     httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_sendstr(req, "File uploaded successfully");
 
+    disable_all();
     esp_restart();
 
     return ESP_OK;

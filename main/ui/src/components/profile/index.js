@@ -1,37 +1,36 @@
 import { h, Component } from 'preact';
 import style from './style.less';
 
-export default class Profile extends Component {
-	state = {
-		count: 0
-	};
+export default class Settings extends Component {
+	constructor(props) {
+		super(props)
 
-	// update the current time
-	updateTime = () => {
-		let time = new Date().toLocaleString();
-		this.setState({ time });
-	};
+		this.state = {}
+	}
 
-	// gets called when this route is navigated to
 	componentDidMount() {
-		// start a timer for the clock:
-		this.timer = setInterval(this.updateTime, 1000);
-		this.updateTime();
-
-		// every time we get remounted, increment a counter:
-		this.setState({ count: this.state.count+1 });
+		window.emitter.on('refresh', () => {
+			setTimeout(() => this.forceUpdate())
+		})
 	}
 
-	// gets called just before navigating away from the route
 	componentWillUnmount() {
-		clearInterval(this.timer);
 	}
 
-	// Note: `user` comes from the URL, courtesy of our router
 	render() {
+		const reboot = () => {
+			window.emitter.emit('update', { isLoading: true })
+			window.emitter.emit('send', 'reboot')
+
+			setTimeout(() => {
+				location.reload()
+			}, 1500)
+		}
+
 		return (
-			<div>
-				Hello
+			<div className={style.firmware}>
+				<div><button onClick={() => reboot()}>Reboot</button></div>
+				<div><input id="btn" type="button" value="Firmware update" onClick={() => location.href = '/ota'} /></div>
 			</div>
 		);
 	}

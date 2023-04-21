@@ -27,22 +27,26 @@
 #include "esp_ota_ops.h"
 #include "esp_flash_partitions.h"
 #include "esp_partition.h"
+#include "driver/temperature_sensor.h"
 
 static const char *TAG = "EFOGTECH-ISKRA";
 
-static int usbVrefVoltage = -1;
-static int cc1 = -1, cc2 = -1;
-static int heaterTemperature = -1;
-static int heaterPwm = 1;
-static int waterTemperature = -1;
-static int radiatorTemperature = -1;
-static int targetTemperature = 220;
-static int peltierValue = 0;
-static int fanValue = 10;
-static bool isHeating = false;
-static bool isCooling = false;
-static bool isWaitingForConnection = true;
+static volatile int usbVrefVoltage = -1;
+static volatile int cc1 = -1, cc2 = -1;
+static volatile int boardTemperature = -1;
+static volatile int heaterTemperature = -1;
+static volatile int heaterPwm = 1;
+static volatile int waterTemperature = -1;
+static volatile int radiatorTemperature = -1;
+static volatile int targetTemperature = 220;
+static volatile int peltierValue = 0;
+static volatile int fanValue = 0;
+static uint32_t freeRam = 0;
+static volatile bool isHeating = false;
+static volatile bool isCooling = false;
+static volatile bool isWaitingForConnection = true;
 static const int voltageMaxThreshold = 1600;
+temperature_sensor_handle_t temp_sensor = NULL;
 
 static esp_err_t start_file_server(httpd_handle_t);
 
@@ -169,6 +173,13 @@ static void startHeating() {
     ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 }
 
+static void disable_all() {
+    isCooling = false;
+    isHeating = false;
+    fanValue = PWM_MAX;
+    isWaitingForConnection = false;
+}
+
 static void stopHeating() {
     isHeating = false;
 
@@ -187,15 +198,15 @@ static void toggleHeating() {
 }
 
 static void startCooling() {
-    fanValue = 16;
+    fanValue = PWM_MAX;
     isCooling = true;
 
-    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, PWM_MAX * (peltierValue / 32) * 0.7);
-    ledc_update_duty(PWM_MODE, PWM_CHANNEL_PELTIER);
+//    ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, PWM_MAX * (peltierValue / 32) * 0.5);
+//    ledc_update_duty(PWM_MODE, PWM_CHANNEL_PELTIER);
 }
 
 static void stopCooling() {
-    fanValue = 10;
+    fanValue = 0;
     isCooling = false;
 
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_PELTIER, 0);
@@ -286,6 +297,12 @@ static void initPwm() {
 }
 
 static void initAdc() {
+    temperature_sensor_config_t temp_sensor_config = TEMPERATURE_SENSOR_CONFIG_DEFAULT(10, 50);
+    ESP_ERROR_CHECK(temperature_sensor_install(&temp_sensor_config, &temp_sensor));
+
+    ESP_LOGI(TAG, "Enable temperature sensor");
+    ESP_ERROR_CHECK(temperature_sensor_enable(temp_sensor));
+
     adc_oneshot_unit_init_cfg_t init_config1 = {
         .unit_id = ADC_UNIT_1,
     };
@@ -305,18 +322,32 @@ static void initAdc() {
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &config));
 }
 
-static void IRAM_ATTR makeJob() {
-    int temperature = -1, usbVref = -1;
+static void IRAM_ATTR makeAdcReads() {
+    int32_t sum_1 = 0, sum_2 = 0, sum_3 = 0, sum_4 = 0;
+    int8_t multisample = 24;
 
-    adc_oneshot_read(adc1_handle, USB_VREF_ADC_CHANNEL, &usbVref);
-    adc_oneshot_read(adc2_handle, TEMP_ADC_CHANNEL, &temperature);
-    adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &waterTemperature);
+    for (int8_t i = 0; i < multisample; i++) {
+        int32_t temp_1 = 0, temp_2 = 0, temp_3 = 0;
+        float temp_4 = 0;
 
-    usbVrefVoltage = usbVref;
-    heaterTemperature = temperature;
+        adc_oneshot_read(adc1_handle, USB_VREF_ADC_CHANNEL, &temp_1);
+        adc_oneshot_read(adc2_handle, TEMP_ADC_CHANNEL, &temp_2);
+        adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &temp_3);
+        temperature_sensor_get_celsius(temp_sensor, &temp_4);
 
-    ws_update_voltage(usbVref);
-    ws_update_temperature(temperature);
+        sum_1 += temp_1;
+        sum_2 += temp_2;
+        sum_3 += temp_3;
+        sum_4 += (signed int) temp_4;
+    }
+
+    usbVrefVoltage = sum_1 / multisample;
+    heaterTemperature = (sum_2 / multisample) * 0.95;
+    waterTemperature = sum_3 / multisample;
+    boardTemperature = sum_4 / multisample;
+
+    ws_update_voltage(usbVrefVoltage);
+    ws_update_temperature(heaterTemperature);
 }
 
 static void pcb_led_task(void *pvParameters)
@@ -460,6 +491,17 @@ static void rgb_task(void *pvParameters)
     bool redPulseDirection = 0;
 
     while (1) {
+        if (usbVrefVoltage < voltageMaxThreshold) {
+            ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
+            ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+            ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, 0);
+            ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
+            ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
+            ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
+            vTaskDelay(pdMS_TO_TICKS(400));
+            continue;
+        }
+
         if (isWaitingForConnection) {
             pulseDuty += 8;
             pulseDuty *= 1.013;
@@ -510,10 +552,16 @@ static void rgb_task(void *pvParameters)
 }
 
 static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
-    int baseDelay = 4;
+    int baseDelay = 16;
     int state = 0;
 
     while (1) {
+        if (usbVrefVoltage < voltageMaxThreshold) {
+            gpio_set_level(GPIO_NUM_PELTIER, 0);
+            vTaskDelay(pdMS_TO_TICKS(400));
+            continue;
+        }
+
         if (!isCooling) {
             gpio_set_level(GPIO_NUM_PELTIER, 0);
             vTaskDelay(pdMS_TO_TICKS(600));
@@ -529,7 +577,7 @@ static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
             continue;
         }
 
-        if (isHeating && heaterPwm < PWM_MAX / 2) {
+        if (isHeating && heaterPwm < 0.5) {
             peltierValue = PWM_MAX;
         }
 
@@ -549,32 +597,39 @@ static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
 }
 
 static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
-    int baseDelay = 1;
+    int baseDelay = 8;
     int state = 0;
 
     while (1) {
+        if (usbVrefVoltage < voltageMaxThreshold) {
+            gpio_set_level(GPIO_NUM_FAN, 0);
+            vTaskDelay(pdMS_TO_TICKS(400));
+            continue;
+        }
+
         if (fanValue == 0) {
             gpio_set_level(GPIO_NUM_FAN, 0);
             vTaskDelay(pdMS_TO_TICKS(baseDelay * 64));
             continue;
-        } else if (fanValue == PWM_MAX) {
+        } else {
+            fanValue = 31;
             gpio_set_level(GPIO_NUM_FAN, 1);
             vTaskDelay(pdMS_TO_TICKS(baseDelay * 32));
             continue;
         }
-
-        int delayTicks;
-
-        if (state == 0) {
-            state = 1;
-            delayTicks = fanValue;
-        } else {
-            state = 0;
-            delayTicks = PWM_MAX - fanValue;
-        }
-
-        gpio_set_level(GPIO_NUM_FAN, state);
-        vTaskDelay(pdMS_TO_TICKS(baseDelay * delayTicks));
+//
+//        int delayTicks;
+//
+//        if (state == 0) {
+//            state = 1;
+//            delayTicks = fanValue;
+//        } else {
+//            state = 0;
+//            delayTicks = PWM_MAX - fanValue;
+//        }
+//
+//        gpio_set_level(GPIO_NUM_FAN, state);
+//        vTaskDelay(pdMS_TO_TICKS(baseDelay * delayTicks));
     }
 }
 
@@ -585,7 +640,13 @@ static void IRAM_ATTR pd_task(void *pvParameters) {
         gpio_set_level(GPIO_NUM_PD_CFG2, 1);
         gpio_set_level(GPIO_NUM_PD_CFG3, 0);
 
-        vTaskDelay(pdMS_TO_TICKS(6000));
+        if (usbVrefVoltage < voltageMaxThreshold) {
+            isCooling = false;
+            isHeating = false;
+            fanValue = 0;
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(1600));
     }
 }
 
@@ -610,12 +671,7 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
 //        heaterTemperature = (int) temperature;
 
-        if (isHeating) {
-            if (temperature >= targetTemperature) {
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.2);
-                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-            }
-
+        if (isHeating && (usbVrefVoltage > voltageMaxThreshold)) {
             if (temperature < targetTemperature / 2) {
                 heaterPwm = PWM_MAX;
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
@@ -624,22 +680,37 @@ static void IRAM_ATTR report_task(void *pvParameters) {
                 heaterPwm = PWM_MAX * 0.85;
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.85);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+            } else if (temperature >= targetTemperature) {
+                heaterPwm = 0;
+
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0);
+                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             } else {
                 heaterPwm = PWM_MAX * 0.6;
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.6);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             }
+        } else {
+            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
+            ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+
+            heaterPwm = 0;
         }
 
         char buf[256];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"isCooling\":%s}}",
-            isHeating ? "true" : "false",
-            (int) temperature,
-            (int) waterTemperature,
-            voltage > voltageMaxThreshold ? "20V" : "5V",
-            voltage > voltageMaxThreshold ? "true" : "false",
-            isCooling ? "true" : "false"
+            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"isCooling\":%s,\"boardTemperature\":\"%d\",\"heaterPower\":\"%d\",\"coolerPower\":\"%d\",\"fanPower\":\"%d\",\"freeRam\":\"%d\"}}",
+            isHeating ? "true" : "false", // isHeating
+            (int) temperature, // temperature, C
+            (int) waterTemperature, // radiator temp ADC raw data
+            voltage > voltageMaxThreshold ? "20V" : "5V", // voltage
+            voltage > voltageMaxThreshold ? "true" : "false", // isVoltageOk
+            isCooling ? "true" : "false", // isCooling
+            (int) boardTemperature, // board temp, C
+            isHeating ? (int) (((float) heaterPwm / PWM_MAX) * 100) : 0, // heater %
+            isCooling ? (int) (((float) peltierValue / PWM_MAX) * 100) : 0, // cooler %
+            (int) (((float) fanValue / PWM_MAX) * 100), // fan %
+            (int) freeRam / 1000 // free RAM, kb
         );
 
         httpd_ws_frame_t pkt;
@@ -652,10 +723,10 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         vTaskDelay(pdMS_TO_TICKS(120));
 
-//        uint32_t freeRam = esp_get_free_heap_size();
-//        ESP_LOGI(TAG, "Free heap: %d", (int) freeRam);
+        freeRam = esp_get_free_heap_size();
+        ESP_LOGI(TAG, "Free heap: %d", (int) freeRam);
 
-        makeJob();
+        makeAdcReads();
     }
 }
 
@@ -727,8 +798,8 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init load");
     setHeatValue(0);
-    setPeltierValue(28);
-    setFanValue(12);
+    setPeltierValue(16);
+    setFanValue(0);
 
     ESP_LOGI(TAG, "Init soft PWM");
     xTaskCreate(&soft_pwm_task, "soft_pwm_task", 1024, NULL, 6, NULL);

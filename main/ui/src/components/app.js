@@ -10,14 +10,19 @@ import cn from 'classnames';
 window.store = {
 	isLoading: true,
 	isHeating: false,
-	temperature: '?',
-	voltage: '?',
-	isVoltageOk: true,
-	isOnline: true,
+	temperature: 'N/A',
+	voltage: 'N/A',
+	isVoltageOk: false,
+	isOnline: false,
 	isCooling: false,
 	coolingTemperature: 4095,
 	isModalOpened: false,
 	targetTemperature: 240,
+	boardTemperature: 'N/A',
+	heaterPower: 'N/A',
+	coolerPower: 'N/A',
+	fanPower: 'N/A',
+	freeRam: 'N/A',
 }
 
 window.emitter = new class EventEmitter {

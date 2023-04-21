@@ -12,6 +12,13 @@ const StatusLabel = (props) => (
 	</div>
 )
 
+const StatusTag = (props) => (
+	<div className={cn(style.tag, props.className)}>
+		<span>{props.name}:</span>
+		<span>{props.value}</span>
+	</div>
+)
+
 export default class Home extends Component {
 	constructor(props) {
 		super(props)
@@ -26,18 +33,26 @@ export default class Home extends Component {
 	}
 
 	render() {
-		const { temperature, voltage, isCooling, coolingTemperature } = Object.assign({}, this.state, window.store)
+		const {
+			isHeating,
+			temperature,
+			voltage,
+			isOnline,
+			isCooling,
+			coolingTemperature,
+			boardTemperature,
+			heaterPower,
+			isVoltageOk,
+			fanPower,
+			freeRam,
+		} = Object.assign({}, this.state, window.store)
 
 		const cool = () => {
-			console.log('Cool');
-
 			window.emitter.emit('send', 'cool', true)
 			window.emitter.emit('update', { isCooling: !window.store.isCooling, isLoading: true })
 		}
 
 		const heat = () => {
-			console.log('Heat');
-
 			if (window.store.isHeating) {
 				window.emitter.emit('send', `set t=0`, true)
 				window.emitter.emit('send', `heat`, true)
@@ -56,18 +71,47 @@ export default class Home extends Component {
 
 		const lastStage = Object.keys(isStage).reverse().find(it => isStage[it])
 
+		const mapTags = (tag, index) => (
+			<StatusTag key={index} name={tag[0]} value={tag[1]} />
+		)
+
+		const statusColumn1 = [
+			['Heater', `${heaterPower}%`],
+			['Fan', `${fanPower}%`],
+			['CPU temp', `${boardTemperature}°C`],
+			['Free RAM', `${freeRam} Kb`],
+		].map(mapTags)
+
+		const statusColumn2 = [
+			['Heating', isHeating ? 'Yes' : 'No'],
+			['Cooling', isCooling ? 'Yes' : 'No'],
+			['PSU', voltage],
+		].map(mapTags)
+
 		return (
 			<div className={style.home}>
 				<div className={style.card}>
 					<IskraIcon />
 
-					<StatusLabel className={style.status_voltage} text={voltage} />
-					<StatusLabel onClick={heat} className={style.status_temp} text={`${temperature}°C`} />
-					<StatusLabel onClick={cool} className={cn(style.status_cooling, isCooling && lastStage)} text={<div className={style.progress} />} />
+					<StatusLabel onClick={heat} className={cn(style.status_temp, {
+						[style.red]: temperature > 160,
+						[style.yellow]: temperature > 100 && temperature < 160,
+						[style.green]: temperature < 100 || !parseInt(temperature),
+					})} text={`${temperature}°C`} />
+
+					<StatusLabel onClick={cool} className={cn(style.status_cooling, {
+						[lastStage]: isCooling,
+					})} text={<div className={style.progress} />} />
 				</div>
 
 				<div className={style.card}>
+					<div className={style.column}>
+						{statusColumn1}
+					</div>
 
+					<div className={style.column}>
+						{statusColumn2}
+					</div>
 				</div>
 			</div>
 		);
