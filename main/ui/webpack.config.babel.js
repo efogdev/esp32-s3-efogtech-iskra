@@ -2,12 +2,12 @@ import webpack from 'webpack';
 import ExtractTextPlugin from 'extract-text-webpack-plugin';
 import HtmlWebpackPlugin from 'html-webpack-plugin';
 import autoprefixer from 'autoprefixer';
-import CopyWebpackPlugin from 'copy-webpack-plugin';
-import OfflinePlugin from 'offline-plugin';
 import path from 'path';
+import fs from 'fs';
 const ENV = process.env.NODE_ENV || 'development';
 
-const CSS_MAPS = ENV!=='production';
+const CSS_MAPS = ENV !== 'production';
+const version = fs.readFileSync('../../.version').toString()
 
 module.exports = {
 	context: path.resolve(__dirname, "src"),
@@ -27,7 +27,7 @@ module.exports = {
 			'node_modules'
 		],
 		alias: {
-			components: path.resolve(__dirname, "src/components"),    // used for tests
+			components: path.resolve(__dirname, "src/components"),
 			style: path.resolve(__dirname, "src/style"),
 			'react': 'preact-compat',
 			'react-dom': 'preact-compat'
@@ -122,7 +122,8 @@ module.exports = {
 			disable: ENV !== 'production'
 		}),
 		new webpack.DefinePlugin({
-			'process.env.NODE_ENV': JSON.stringify(ENV)
+			'process.env.NODE_ENV': JSON.stringify(ENV),
+			'window.__firmwareVersion': JSON.stringify(version || 'N/A')
 		}),
 		new HtmlWebpackPlugin({
 			template: './index.ejs',
@@ -158,23 +159,6 @@ module.exports = {
 				drop_console: true
 			}
 		}),
-
-		new OfflinePlugin({
-			relativePaths: false,
-			AppCache: false,
-			excludes: ['_redirects'],
-			ServiceWorker: {
-				events: true
-			},
-			cacheMaps: [
-				{
-					match: /.*/,
-					to: '/',
-					requestTypes: ['navigate']
-				}
-			],
-			publicPath: '/'
-		})
 	] : []),
 
 	stats: { colors: true },
@@ -188,7 +172,7 @@ module.exports = {
 		setImmediate: false
 	},
 
-	devtool: ENV==='production' ? 'source-map' : 'cheap-module-eval-source-map',
+	devtool: ENV === 'production' ? 'source-map' : 'cheap-module-eval-source-map',
 
 	devServer: {
 		port: process.env.PORT || 8080,
@@ -198,12 +182,7 @@ module.exports = {
 		historyApiFallback: true,
 		open: true,
 		openPage: '',
-		proxy: {
-			// OPTIONAL: proxy configuration:
-			// '/optional-prefix/**': { // path pattern to rewrite
-			//   target: 'http://target-host.com',
-			//   pathRewrite: path => path.replace(/^\/[^\/]+\//, '')   // strip first path segment
-			// }
-		}
+		proxy: {},
+
 	}
 };

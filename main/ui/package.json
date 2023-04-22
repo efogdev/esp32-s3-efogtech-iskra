@@ -1,46 +1,13 @@
 {
-  "name": "preact-boilerplate",
-  "version": "6.0.0",
+  "name": "iskra",
+  "version": "1.0.0",
   "type": "module",
-  "description": "Ready-to-go Preact starter project powered by webpack.",
+  "description": "",
   "scripts": {
     "dev": "cross-env NODE_ENV=development webpack-dev-server --inline --hot --progress",
-    "start": "sirv build -s -q -e",
-    "prestart": "npm run build",
-    "build": "cross-env NODE_ENV=production webpack --progress",
-    "test": "npm run -s lint && jest --coverage",
-    "test:watch": "npm run -s test -- --watch",
-    "lint": "eslint src test"
+    "build": "cross-env NODE_ENV=production webpack --progress"
   },
-  "keywords": [
-    "preact",
-    "boilerplate",
-    "webpack"
-  ],
-  "license": "MIT",
-  "author": "Jason Miller <jason@developit.ca>",
-  "jest": {
-    "setupFiles": [
-      "./test/setup.js"
-    ],
-    "testURL": "http://localhost:8080",
-    "moduleFileExtensions": [
-      "js",
-      "jsx"
-    ],
-    "moduleDirectories": [
-      "node_modules"
-    ],
-    "moduleNameMapper": {
-      "\\.(jpg|jpeg|png|gif|eot|otf|webp|svg|ttf|woff|woff2|mp4|webm|wav|mp3|m4a|aac|oga)$": "<rootDir>/__mocks__/fileMock.js",
-      "\\.(css|less)$": "identity-obj-proxy",
-      "^react$": "preact-compat",
-      "^react-dom$": "preact-compat"
-    },
-    "collectCoverageFrom": [
-      "src/**/*.{js,jsx}"
-    ]
-  },
+  "author": "Efog <efogdev@gmail.com>",
   "devDependencies": {
     "autoprefixer": "^8.0.0",
     "babel": "^6.5.2",
@@ -94,7 +61,6 @@
     "preact-render-to-string": "^3.6.0",
     "preact-router": "^2.5.1",
     "promise-polyfill": "^7.0.1",
-    "proptypes": "^1.0.0",
-    "sirv-cli": "^0.4.2"
+    "proptypes": "^1.0.0"
   }
 }

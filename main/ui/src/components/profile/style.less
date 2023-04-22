@@ -1,9 +1,39 @@
 @import '~style/helpers';
 
 .firmware {
-	min-height: 100%;
-	width: 100%;
-	padding: 84px 32px 24px;
+	min-height: 100vh;
+	width: 100vw;
+	background: #fafafa;
+	display: flex;
+	flex-direction: row;
+	//align-items: center;
+	justify-content: center;
+	padding: 54px 0 0;
+
+	.card {
+		flex: 1 1 50%;
+		height: 100%;
+		padding: 32px;
+	}
+
+	.frame {
+		width: 300px;
+		height: 160px;
+		border: none;
+		text-shadow: none;
+		box-shadow: none;
+		display: none;
+
+		&.visible {
+			display: block;
+		}
+	}
+
+	.version {
+		color: gray;
+		font-size: 15px;
+		margin-bottom: 12px;
+	}
 
 	[type="button"], button {
 		margin-top: 12px;
@@ -15,4 +45,28 @@
 		box-shadow: 1px 1px 3px 1px #673ab755;
 	}
 
+	.inline {
+		display: inline-block;
+		margin-right: 12px;
+	}
+
+	.capable button {
+		background: #3db23d;
+	}
+
+	.red button {
+		background: #b23d3d;
+	}
+}
+
+@media screen and (orientation: portrait) {
+	.firmware {
+		flex-direction: column;
+		justify-content: flex-start;
+
+		.card {
+			flex: 0 1 auto;
+			height: auto;
+		}
+	}
 }

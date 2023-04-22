@@ -1,7 +1,7 @@
 import { h, render } from 'preact';
 import './style';
 
-const OFFLINE_THRESHOLD_MS = 3000;
+const OFFLINE_THRESHOLD_MS = 600;
 let interval = -1;
 
 class API {
@@ -11,10 +11,27 @@ class API {
 		this.tryInit()
 	}
 
+	initSW() {
+		try {
+			navigator.serviceWorker.register('/sw.js')
+
+			console.log(navigator.serviceWorker);
+
+			navigator.serviceWorker.addEventListener('message', (e) => {
+				console.log(JSON.stringify(e));
+			});
+		} catch (e) {
+			console.log(e);
+		}
+	}
+
 	tryInit() {
 		try {
 			this.init()
+			this.initSW();
 		} catch (e) {
+			console.log(e);
+
 			setTimeout(() => {
 				this.tryInit()
 			}, 5000)
@@ -22,8 +39,6 @@ class API {
 	}
 
 	init() {
-		clearInterval(interval);
-
 		this.ws = new WebSocket("ws://192.168.4.1/ws");
 
 		this.ws.onclose = this.init.bind(null);
@@ -47,6 +62,8 @@ class API {
 						isLoading: false,
 						isOnline: true,
 					})
+
+					window.emitter.emit('send', `pd_request 15`)
 				}
 
 				if (type === 'system') eval(content);
@@ -65,12 +82,18 @@ class API {
 		};
 
 		const updateTemperature = () => {
-			window.emitter.emit('update', { isOffline: (window.store.update || Date.now()) - Date.now() > OFFLINE_THRESHOLD_MS })
+			const ifOffline = (Date.now() - window.store.update) > OFFLINE_THRESHOLD_MS;
+
+			Object.assign(window.store, {
+				update: Date.now(),
+			});
+
+			window.emitter.emit('update', { update: Date.now(), isOnline: !ifOffline, isLoading: ifOffline || window.store.isLoading })
 		};
 
-		interval = setInterval(() => {
+		setInterval(() => {
 			updateTemperature()
-		}, 1500)
+		}, 360)
 	}
 }
 
@@ -79,10 +102,6 @@ function init() {
 	let App = require('./components/app').default;
 	root = render(<App />, document.body, root);
 	api = new API();
-}
-
-if (process.env.NODE_ENV === 'production') {
-	require('./pwa');
 }
 
 if (module.hot) {

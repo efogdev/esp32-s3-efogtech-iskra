@@ -20,6 +20,9 @@ static char ota_write_data[BUFFSIZE + 1] = {0};
 static void disable_all();
 static const char *OTA_TAG = "OTA";
 
+#include "const.c"
+static void setThinking(enum THINKING_REASON, bool);
+
 static esp_err_t upload_post_handler(httpd_req_t *req)
 {
     esp_err_t err;
@@ -29,7 +32,7 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
 
     ESP_LOGI(OTA_TAG, "Starting OTA");
 
-    const esp_partition_t *configured = esp_ota_get_boot_partition();
+    esp_ota_get_boot_partition();
     const esp_partition_t *running = esp_ota_get_running_partition();
 
     update_partition = esp_ota_get_next_update_partition(NULL);
@@ -61,6 +64,8 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
 
         if (image_header_was_checked == false)
         {
+            setThinking(REASON_FW, true);
+
             esp_app_desc_t new_app_info;
             if (received > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))
             {
@@ -122,6 +127,8 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
         }
     }
 
+    setThinking(REASON_FW, false);
+
     err = esp_ota_set_boot_partition(update_partition);
     if (err != ESP_OK)
     {
@@ -138,7 +145,7 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static esp_err_t start_file_server(httpd_handle_t server)
+static esp_err_t __attribute__((unused)) start_file_server(httpd_handle_t server)
 {
     httpd_uri_t file_upload = {
         .uri = "/upload",

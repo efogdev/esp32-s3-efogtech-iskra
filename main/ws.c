@@ -9,6 +9,9 @@ static int _temperature = 0;
 static void toggleHeating();
 static void toggleCooling();
 static void setConnected();
+static void disable_all();
+static void setPD(int);
+static void pdTest();
 static void setTargetTemperature(int);
 
 struct async_resp_arg {
@@ -35,6 +38,8 @@ static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_ha
         return ret;
     }
 
+    ws_pkt->final = true;
+
     for (int i = 0; i < fds; i++) {
         int client_info = httpd_ws_get_fd_info(server_handle, client_fds[i]);
         if (client_info == HTTPD_WS_CLIENT_WEBSOCKET) {
@@ -50,6 +55,7 @@ static esp_err_t echo_handler(httpd_req_t *req)
     if (req->method == HTTP_GET) {
         return ESP_OK;
     }
+
     httpd_ws_frame_t ws_pkt;
     uint8_t *buf = NULL;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
@@ -101,6 +107,22 @@ static esp_err_t echo_handler(httpd_req_t *req)
             esp_restart();
         }
 
+        if (strcmp((const char *) ws_pkt.payload, "pd_test") == 0) {
+            pdTest();
+        }
+
+        if (strncmp((const char *) ws_pkt.payload, "pd_request", 10) == 0) {
+            int volts = -1;
+            sscanf((const char *) ws_pkt.payload, "pd_request %d", &volts);
+
+            ESP_LOGI(WS_TAG, "Requesting %dV with USB PD.", volts);
+
+            if (volts > 5) {
+                disable_all();
+                setPD(volts);
+            }
+        }
+
         if (strncmp((const char *) ws_pkt.payload, "set", 3) == 0) {
             ESP_LOGI(WS_TAG, "Set target temperature.");
 
@@ -120,11 +142,11 @@ static esp_err_t echo_handler(httpd_req_t *req)
 }
 
 static const httpd_uri_t ws = {
-        .uri        = "/ws",
-        .method     = HTTP_GET,
-        .handler    = echo_handler,
-        .user_ctx   = NULL,
-        .is_websocket = true
+    .uri        = "/ws",
+    .method     = HTTP_GET,
+    .handler    = echo_handler,
+    .user_ctx   = NULL,
+    .is_websocket = true
 };
 
 static void initWebsocket(httpd_handle_t server)

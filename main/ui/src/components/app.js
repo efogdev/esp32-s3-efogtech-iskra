@@ -8,6 +8,8 @@ import style from './style.less';
 import cn from 'classnames';
 
 window.store = {
+	isServerThinking: false,
+	update: Date.now(),
 	isLoading: true,
 	isHeating: false,
 	temperature: 'N/A',
@@ -23,6 +25,10 @@ window.store = {
 	coolerPower: 'N/A',
 	fanPower: 'N/A',
 	freeRam: 'N/A',
+	voltageRaw: 'N/A',
+	'12V': true,
+	'15V': false,
+	'20V': false,
 }
 
 window.emitter = new class EventEmitter {

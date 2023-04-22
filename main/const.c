@@ -1,0 +1,6 @@
+#ifndef C_H
+#define C_H
+
+enum THINKING_REASON {  REASON_DEFAULT = 0, REASON_PD, REASON_FW, REASON_TEST };
+
+#endif

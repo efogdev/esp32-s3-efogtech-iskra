@@ -37,12 +37,11 @@ export default class Home extends Component {
 			isHeating,
 			temperature,
 			voltage,
-			isOnline,
 			isCooling,
 			coolingTemperature,
 			boardTemperature,
 			heaterPower,
-			isVoltageOk,
+			voltageRaw,
 			fanPower,
 			freeRam,
 		} = Object.assign({}, this.state, window.store)
@@ -63,10 +62,9 @@ export default class Home extends Component {
 		}
 
 		const stages = 5
-		const coolingMin = 4095, coolingMax = 3540
-		const diff = coolingMin - coolingMax
+		const coolingMin = 3940, coolingMax = 4095, diff = coolingMax - coolingMin
 		const isStage = new Array(stages).fill(null).reduce((store, _, index) => Object.assign({}, store, {
-			[style[`stage_${index + 1}`]]: parseInt(coolingTemperature) < (coolingMin - (diff / stages * index)),
+			[style[`stage_${index + 1}`]]: index === 0 // parseInt(coolingTemperature) < (coolingMin - (diff / stages * index)),
 		}), { })
 
 		const lastStage = Object.keys(isStage).reverse().find(it => isStage[it])
@@ -76,16 +74,27 @@ export default class Home extends Component {
 		)
 
 		const statusColumn1 = [
+			['Cooler', isCooling ? `ON, ${Math.max(0 ,Math.round((diff - (coolingMax - coolingTemperature)) / diff))}%` : 'OFF'],
 			['Heater', `${heaterPower}%`],
 			['Fan', `${fanPower}%`],
 			['CPU temp', `${boardTemperature}°C`],
-			['Free RAM', `${freeRam} Kb`],
 		].map(mapTags)
+
+		const voltageMap = [
+		//  min    max   volts
+			[0,    540,  5],
+			[1100, 1360, 12],
+			[1420, 1680, 15],
+			[1800, 4095, 20],
+		]
+
+		const [,,voltageValue] = voltageMap.find(([ min, max ]) => voltageRaw > min && voltageRaw < max) || [0,0,'5']
 
 		const statusColumn2 = [
 			['Heating', isHeating ? 'Yes' : 'No'],
 			['Cooling', isCooling ? 'Yes' : 'No'],
-			['PSU', voltage],
+			['PSU', `${voltageValue}V`],
+			['Free RAM', `${freeRam} Kb`],
 		].map(mapTags)
 
 		return (
