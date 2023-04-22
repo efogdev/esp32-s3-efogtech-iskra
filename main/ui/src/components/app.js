@@ -17,7 +17,7 @@ window.store = {
 	isVoltageOk: false,
 	isOnline: false,
 	isCooling: false,
-	coolingTemperature: 4095,
+	coolingTemperature: 0,
 	isModalOpened: false,
 	targetTemperature: 240,
 	boardTemperature: 'N/A',
@@ -26,7 +26,7 @@ window.store = {
 	fanPower: 'N/A',
 	freeRam: 'N/A',
 	voltageRaw: 'N/A',
-	'12V': true,
+	'12V': false,
 	'15V': false,
 	'20V': false,
 }

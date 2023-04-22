@@ -62,9 +62,9 @@ export default class Home extends Component {
 		}
 
 		const stages = 5
-		const coolingMin = 3940, coolingMax = 4095, diff = coolingMax - coolingMin
+		const coolingMin = 3948, coolingMax = 4095, diff = coolingMax - coolingMin
 		const isStage = new Array(stages).fill(null).reduce((store, _, index) => Object.assign({}, store, {
-			[style[`stage_${index + 1}`]]: index === 0 // parseInt(coolingTemperature) < (coolingMin - (diff / stages * index)),
+			[style[`stage_${index + 1}`]]: index === 0 || (diff - (coolingMax - coolingTemperature)) > (diff / stages * index),
 		}), { })
 
 		const lastStage = Object.keys(isStage).reverse().find(it => isStage[it])
@@ -73,8 +73,11 @@ export default class Home extends Component {
 			<StatusTag key={index} name={tag[0]} value={tag[1]} />
 		)
 
+		const coolValue = Math.max(0, Math.round((diff - (coolingMax - coolingTemperature)) / diff * 100));
+		const coolValue10 = Math.round(coolValue / 10) * 10;
+
 		const statusColumn1 = [
-			['Cooler', isCooling ? `ON, ${Math.max(0 ,Math.round((diff - (coolingMax - coolingTemperature)) / diff))}%` : 'OFF'],
+			['Cooler', isCooling ? `ON, ${coolValue10}%` : 'OFF'],
 			['Heater', `${heaterPower}%`],
 			['Fan', `${fanPower}%`],
 			['CPU temp', `${boardTemperature}°C`],

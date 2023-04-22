@@ -63,7 +63,7 @@ export default class Settings extends Component {
 				</div>
 
 				<div className={style.card}>
-					<iframe className={cn(style.frame, { [style.visible]: data.showOta })} src="/ota" />
+					<iframe sandbox="allow-same-origin allow-scripts allow-popups allow-forms" className={cn(style.frame, { [style.visible]: data.showOta })} src="/ota" />
 				</div>
 			</div>
 		);

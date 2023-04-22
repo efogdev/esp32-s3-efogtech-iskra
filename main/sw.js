@@ -6,8 +6,6 @@ let urls_to_cache = [
 ]
 
 self.addEventListener('install', (e) => {
-	self.clients.matchAll().then(clients => clients.forEach(it => it.postMessage('install')))
-
 	e.waitUntil(caches.open(cache_name).then((cache) => {
 		return cache.addAll(urls_to_cache)
 	}))
@@ -21,9 +19,3 @@ self.addEventListener('fetch', (e) => {
 			return fetch(e.request)
 	}) )
 })
-
-console.log(self)
-
-setTimeout(() => {
-	self.clients.matchAll().then(clients => clients.forEach(it => it.postMessage('hello')))
-}, 1600)

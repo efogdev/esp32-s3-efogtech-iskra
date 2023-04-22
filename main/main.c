@@ -83,8 +83,6 @@ static volatile enum THINKING_REASON thinkingReason = REASON_DEFAULT;
 #define TEMP_ADC_CHANNEL ADC_CHANNEL_5
 #define WATER_TEMP_ADC_CHANNEL ADC_CHANNEL_4
 #define RADIATOR_TEMP_ADC_CHANNEL ADC_CHANNEL_6
-//#define USB_CC1_ADC_CHANNEL ADC_CHANNEL_6
-//#define USB_CC2_ADC_CHANNEL ADC_CHANNEL_7
 #define USB_VREF_ADC_CHANNEL ADC_CHANNEL_7
 
 #define GPIO_RGB_R 10
@@ -128,6 +126,9 @@ static volatile enum THINKING_REASON thinkingReason = REASON_DEFAULT;
 
 #define GPIO_LED_1 48
 #define GPIO_NUM_LED_1 GPIO_NUM_48
+
+#define GPIO_LED_HEAT 46
+#define GPIO_NUM_LED_HEAT GPIO_NUM_46
 
 #define GPIO_RST_BTN 36
 #define GPIO_NUM_RST_BTN GPIO_NUM_36
@@ -183,6 +184,8 @@ static void setConnected() {
 
 static void setPD(int volts) {
     requestUsbPdVolts = volts;
+
+    vTaskDelay(pdMS_TO_TICKS(64));
 }
 
 static void setTargetTemperature(int temp) {
@@ -203,28 +206,14 @@ static void startHeating() {
 static void disable_all() {
     isCooling = false;
     isHeating = false;
-    fanValue = PWM_MAX;
-    isWaitingForConnection = false;
+    fanValue = 0;
 
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
     ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 
-    ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
-    ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
-
-    ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, 0);
-    ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
-
-    ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
-    ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
-
     gpio_set_level(GPIO_NUM_PELTIER, 0);
     gpio_set_level(GPIO_NUM_HEAT, 0);
     gpio_set_level(GPIO_NUM_FAN, 0);
-
-    gpio_set_level(GPIO_NUM_RGB_R, 0);
-    gpio_set_level(GPIO_NUM_RGB_B, 0);
-    gpio_set_level(GPIO_NUM_RGB_G, 0);
 }
 
 static void stopHeating() {
@@ -238,8 +227,10 @@ static void toggleHeating() {
     isHeating = !isHeating;
 
     if (isHeating) {
+//        gpio_set_level(GPIO_NUM_LED_HEAT, 1);
         startHeating();
     } else {
+//        gpio_set_level(GPIO_NUM_LED_HEAT, 0);
         stopHeating();
     }
 }
@@ -256,7 +247,6 @@ static void startCooling() {
 }
 
 static void stopCooling() {
-    fanValue = 0;
     isCooling = false;
 }
 
@@ -539,12 +529,7 @@ static httpd_handle_t start_webserver(void)
     return server;
 }
 
-// static bool fade = false;
-// static int fadeSpeed = 
-// static int fadeTo = 0;
-// static int fadeCurrent = 0;
-
-static void rgb_task(void *pvParameters)
+static void IRAM_ATTR rgb_task(void *pvParameters)
 {
     const int BRIGHTNESS_MAX = RGB_MAX * 0.8;
     const int RED_BRIGHTNESS_MIN = RGB_MAX * 0.1;
@@ -556,11 +541,14 @@ static void rgb_task(void *pvParameters)
         if (usbVrefVoltage < voltageMaxThreshold) {
             ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
             ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+
             ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, 0);
             ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
+
             ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
             ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
-            vTaskDelay(pdMS_TO_TICKS(640));
+
+            vTaskDelay(pdMS_TO_TICKS(128));
             continue;
         }
 
@@ -687,7 +675,7 @@ static void IRAM_ATTR pd_task(void *pvParameters) {
     int actualValue = 0;
 
     gpio_set_level(GPIO_NUM_PD_CFG2, 1);
-    gpio_set_level(GPIO_NUM_PD_CFG3, 1);
+    gpio_set_level(GPIO_NUM_PD_CFG3, 0);
 
     while (1) {
         if (usbVrefVoltage < voltageMaxThreshold) {
@@ -748,7 +736,7 @@ static void IRAM_ATTR pd_task(void *pvParameters) {
 }
 
 static void IRAM_ATTR report_task(void *pvParameters) {
-    vTaskDelay(pdMS_TO_TICKS(2000));
+    vTaskDelay(pdMS_TO_TICKS(800));
 
     while (1) {
         if (!webserver) {
@@ -856,6 +844,7 @@ void app_main(void)
             | (1ULL << GPIO_NUM_RGB_B)
             | (1ULL << GPIO_NUM_LED_0) 
             | (1ULL << GPIO_NUM_LED_1)
+            | (1ULL << GPIO_NUM_LED_HEAT)
             | (1ULL << GPIO_NUM_FAN)
         );
     io_conf.pull_down_en = 1;
@@ -906,23 +895,24 @@ void app_main(void)
 
     ESP_LOGI(TAG, "Init ADC");
     initAdc();
+
     ESP_LOGI(TAG, "Init PWM");
     initPwm();
 
     ESP_LOGI(TAG, "Init load");
     setPeltierValue(16);
-    setFanValue(0);
+    setFanValue(PWM_MAX);
 
     ESP_LOGI(TAG, "Init soft PWM");
-    xTaskCreate(&soft_pwm_task, "soft_pwm_task", 1024, NULL, 6, NULL);
-    xTaskCreate(&pd_task, "pd_task", 8192 * 2, NULL, 2, NULL);
-    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 1024, NULL, 14, NULL);
+    xTaskCreate(&pd_task, "pd_task", 2048, NULL, 2, NULL);
+    xTaskCreate(&soft_pwm_task, "soft_pwm_task", 2048, NULL, 6, NULL);
+    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 2048, NULL, 14, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
 
     ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 2048, NULL, 8, NULL);
+    xTaskCreate(&report_task, "report_task", 8192, NULL, 8, NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();

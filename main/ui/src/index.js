@@ -41,8 +41,11 @@ class API {
 	init() {
 		this.ws = new WebSocket("ws://192.168.4.1/ws");
 
-		this.ws.onclose = this.init.bind(null);
-		this.ws.onerror = this.init.bind(null);
+		this.ws.onclose = this.init.bind(this);
+
+		this.ws.onerror = () => {
+			try { this.ws.close() } catch (e) {}
+		};
 
 		window.emitter.on('send', (data) => {
 			this.ws.send(data.toString());
@@ -89,11 +92,12 @@ class API {
 			});
 
 			window.emitter.emit('update', { update: Date.now(), isOnline: !ifOffline, isLoading: ifOffline || window.store.isLoading })
+			window.emitter.emit('refresh', null, true)
 		};
 
 		setInterval(() => {
 			updateTemperature()
-		}, 360)
+		}, 640)
 	}
 }
 
