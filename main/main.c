@@ -195,7 +195,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 static void setConnected() {
     isWaitingForConnection = false;
-    set_rgb_stage(RGB_STAGE_IDLE);
+//    set_rgb_stage(RGB_STAGE_IDLE);
 }
 
 static void setPD(int volts) {
@@ -547,10 +547,15 @@ static httpd_handle_t start_webserver(void)
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
+
+    config.task_priority = 2;
     config.server_port = 80;
-    config.max_open_sockets = 5;
+    config.backlog_conn = 0;
+    config.max_open_sockets = 12;
     config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
+    config.keep_alive_enable = false;
+    config.send_wait_timeout = 3;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
@@ -676,7 +681,7 @@ static void pd_task(void *pvParameters) {
             nvs_set_u8(nvs, "vcc20", 0);
             nvs_set_u8(nvs, "pd_tested", 1);
 
-            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
+            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.8);
             ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 0);
@@ -920,7 +925,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
     ESP_LOGI(TAG, "Init emergency");
-    xTaskCreate(&call_911_task, "call_911_task", 8192, NULL, 1, NULL);
+    xTaskCreate(&call_911_task, "call_911_task", 2048, NULL, 1, NULL);
 
     ESP_LOGI(TAG, "Init ADC");
     initAdc();
@@ -929,14 +934,14 @@ void app_main(void)
     initPwm();
 
     ESP_LOGI(TAG, "Init PD");
-    xTaskCreate(&pd_task, "pd_task", 4096, NULL, 4, NULL);
+    xTaskCreate(&pd_task, "pd_task", 2048, NULL, 4, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     rgb_init();
     xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
 
     ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 8192, NULL, 8, NULL);
+    xTaskCreate(&report_task, "report_task", 4096, NULL, 8, NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();

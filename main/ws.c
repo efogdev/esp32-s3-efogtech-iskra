@@ -2,6 +2,7 @@
 #include <nvs_flash.h>
 #include <esp_http_server.h>
 
+static httpd_handle_t server = NULL;
 static const char *WS_TAG = "WS";
 static int voltage = 0;
 static int _temperature = 0;
@@ -29,7 +30,6 @@ static void ws_update_voltage(int new_voltage) {
     voltage = new_voltage;
 }
 
-static httpd_handle_t server = NULL;
 static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_handle_t server_handle) {
     server = server_handle;
 
@@ -48,6 +48,8 @@ static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_ha
     for (int i = 0; i < fds; i++) {
         int client_info = httpd_ws_get_fd_info(server_handle, client_fds[i]);
         if (client_info == HTTPD_WS_CLIENT_WEBSOCKET) {
+            ESP_LOGI(WS_TAG, "Sending to FD %d", client_fds[i]);
+
             httpd_ws_send_frame_async(server_handle, client_fds[i], ws_pkt);
         }
     }
@@ -73,6 +75,10 @@ static void ws_log(char* text) {
 
 static esp_err_t echo_handler(httpd_req_t *req)
 {
+    if (req == NULL) {
+        return ESP_OK;
+    }
+
     if (req->method == HTTP_GET) {
         return ESP_OK;
     }
@@ -81,21 +87,23 @@ static esp_err_t echo_handler(httpd_req_t *req)
     uint8_t *buf = NULL;
     memset(&ws_pkt, 0, sizeof(httpd_ws_frame_t));
     ws_pkt.type = HTTPD_WS_TYPE_TEXT;
-    /* Set max_len = 0 to get the frame len */
+
     esp_err_t ret = httpd_ws_recv_frame(req, &ws_pkt, 0);
+
     if (ret != ESP_OK) {
         ESP_LOGE(WS_TAG, "httpd_ws_recv_frame failed to get frame len with %d", ret);
         return ret;
     }
+
     if (ws_pkt.len) {
-        /* ws_pkt.len + 1 is for NULL termination as we are expecting a string */
         buf = calloc(1, ws_pkt.len + 1);
         if (buf == NULL) {
             ESP_LOGE(WS_TAG, "Failed to calloc memory for buf");
             return ESP_ERR_NO_MEM;
         }
+
         ws_pkt.payload = buf;
-        /* Set max_len = ws_pkt.len to get the frame payload */
+
         ret = httpd_ws_recv_frame(req, &ws_pkt, ws_pkt.len);
         if (ret != ESP_OK) {
             ESP_LOGE(WS_TAG, "httpd_ws_recv_frame failed with %d", ret);
@@ -103,7 +111,7 @@ static esp_err_t echo_handler(httpd_req_t *req)
             return ret;
         }
 
-        ESP_LOGI(WS_TAG, "Got packet with message: %s", ws_pkt.payload);
+        ESP_LOGI(WS_TAG, "PACKET: %s", ws_pkt.payload);
 
         ret = ESP_OK;
 
@@ -177,6 +185,7 @@ static esp_err_t echo_handler(httpd_req_t *req)
     if (ret != ESP_OK) {
         ESP_LOGE(WS_TAG, "httpd_ws_send_frame failed with %d", ret);
     }
+
     free(buf);
     return ret;
 }
@@ -186,7 +195,7 @@ static const httpd_uri_t ws = {
     .method     = HTTP_GET,
     .handler    = echo_handler,
     .user_ctx   = NULL,
-    .is_websocket = true
+    .is_websocket = true,
 };
 
 static void initWebsocket(httpd_handle_t server)

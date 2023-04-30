@@ -177,8 +177,8 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
 */
 static void dns_server_task(void *pvParameters)
 {
-    char rx_buffer[512];
-    char addr_str[256];
+    char rx_buffer[256];
+    char addr_str[128];
     int addr_family;
     int ip_protocol;
 

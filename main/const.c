@@ -22,8 +22,11 @@ static nvs_handle_t nvs;
 // speed 100 = color change takes 200 ms
 // speed 1 = color change takes 20000 ms
 static const int tickMax = 2048;
-static const int rgbSpeedDefault = 50;
 static const int tickMsDuration = 5000;
+static const int rgbSpeedDefault = 50;
+static const int rgbPowerDefault = 75;
+static const enum PWM_FN rgbFnDefault = PWM_FN_NONE;
+static const char rgbFnDataDefault[64] = "1 0:255,0,0";
 
 static volatile int rgbPower = 100; // 0 - 100
 static enum RGB_STAGE rgbStage = RGB_STAGE_WAIT;
@@ -42,10 +45,10 @@ static int colorIndex = 0;
 static void rgb_init() {
     nvs_open("storage", NVS_READWRITE, &nvs);
 
-    nvs_get_str(nvs, "stage_0_data", &rgbFnData[0], 512);
-    nvs_get_u32(nvs, "stage_0_fn", &rgbFn);
-    nvs_get_u32(nvs, "stage_0_speed", &rgbSpeed);
-    nvs_get_u32(nvs, "stage_0_power", &rgbPower);
+    nvs_get_str(nvs, "stage_0_data", (char *) &rgbFnData[0], 512);
+    nvs_get_u8(nvs, "stage_0_fn", (uint8_t *) &rgbFn);
+    nvs_get_u8(nvs, "stage_0_speed", (uint8_t *) &rgbSpeed);
+    nvs_get_u8(nvs, "stage_0_power", (uint8_t *) &rgbPower);
 }
 
 static void rgb_save_stage(uint8_t new_stage, char* fn_data, uint8_t new_fn, uint8_t new_speed, uint8_t new_power) {
@@ -58,7 +61,7 @@ static void rgb_save_stage(uint8_t new_stage, char* fn_data, uint8_t new_fn, uin
     nvs_set_u8(nvs, stageName, new_fn);
 
     sprintf(stageName, "stage_%d_power", (int) new_stage);
-    nvs_set_str(nvs, stageName, new_power);
+    nvs_set_u8(nvs, stageName, new_power);
 
     sprintf(stageName, "stage_%d_data", (int) new_stage);
     nvs_set_str(nvs, stageName, fn_data);
@@ -103,23 +106,27 @@ static void fetch_stages() {
 
     for (uint8_t i = 0; i < 3; i++) {
         int _speed = -1, _fn = -1, _power = -1;
-        char _data[512];
+        char _data[512] = "";
 
         char stageName[64] = "";
         sprintf(stageName, "stage_%d_data", (int) i);
         nvs_get_str(nvs, stageName, &_data[0], 512);
 
         sprintf(stageName, "stage_%d_fn", (int) i);
-        nvs_get_u32(nvs, stageName, &_fn);
+        nvs_get_u8(nvs, stageName, (uint8_t *) &_fn);
 
         sprintf(stageName, "stage_%d_speed", (int) i);
-        nvs_get_u32(nvs, stageName, &_speed);
+        nvs_get_u8(nvs, stageName, (uint8_t *) &_speed);
 
         sprintf(stageName, "stage_%d_power", (int) i);
-        nvs_get_u32(nvs, stageName, &_power);
+        nvs_get_u8(nvs, stageName, (uint8_t *) &_power);
 
-        if (_fn == -1 || _speed == -1 || _power == -1)
-            continue;
+        if (_fn == -1 || _speed == -1 || _power == -1) {
+            _speed = rgbSpeedDefault;
+            _fn = rgbFnDefault;
+            _power = rgbPowerDefault;
+            memcpy(&_data[0], &rgbFnDataDefault[0], 64);
+        }
 
         ESP_LOGI(
             GLOBAL_TAG,
@@ -157,21 +164,19 @@ static void set_rgb_stage(enum RGB_STAGE stage) {
 
     char stageName[64] = "";
     sprintf(stageName, "stage_%d_data", (int) stage);
-    nvs_get_str(nvs, stageName, &rgbFnData[0], 512);
+    nvs_get_str(nvs, stageName, (char *) &rgbFnData[0], 512);
 
     sprintf(stageName, "stage_%d_fn", (int) stage);
-    nvs_get_u32(nvs, stageName, &rgbFn);
+    nvs_get_u8(nvs, stageName, (uint8_t *) &rgbFn);
 
     sprintf(stageName, "stage_%d_speed", (int) stage);
-    nvs_get_u32(nvs, stageName, &rgbSpeed);
+    nvs_get_u8(nvs, stageName, (uint8_t *) &rgbSpeed);
 
     sprintf(stageName, "stage_%d_power", (int) stage);
-    nvs_set_str(nvs, stageName, &rgbPower);
+    nvs_get_u8(nvs, stageName, (uint8_t *) &rgbPower);
 
     rgbStage = stage;
     set_rgb_fn(rgbFn);
-
-    rgb_fn_restart();
 }
 
 static void parse_rgb_fn_data(char* fnData, int tickValue, int *r, int *g, int *b) {
