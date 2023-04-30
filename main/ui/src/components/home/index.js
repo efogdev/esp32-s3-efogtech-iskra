@@ -19,6 +19,64 @@ const StatusTag = (props) => (
 	</div>
 )
 
+export class Slider extends Component {
+	constructor(props) {
+		super(props);
+
+		this.state = {
+			active: false,
+			percent: props.value,
+		}
+
+		this.ref = null
+	}
+
+	componentDidMount() {
+		setTimeout(() => {
+			this.repaint(this.state.percent)
+		})
+	}
+
+	touch(e) {
+		if (!e.touches || e.touches.length !== 1)
+			return
+
+		e.preventDefault()
+		e.stopPropagation()
+
+		const { pageX } = e.touches[0]
+		const { x, width } = e.target.getBoundingClientRect();
+		const percent = Math.round(Math.min(100, Math.max((pageX - x) * 100 / width, 0)));
+
+		if (!this.state.percent || this.state.percent !== percent) {
+			this.repaint(percent)
+		}
+	}
+
+	repaint(percent) {
+		if (this.ref) {
+			this.ref.style.width = `${percent}%`
+		}
+
+		this.setState({percent})
+		this.props.onChange && this.props.onChange(percent)
+	}
+
+	render() {
+		return (
+			<div
+				onTouchStart={e => this.setState({ isActive: true }, () => this.touch(e))}
+				onTouchMove={e => this.touch(e)}
+				onTouchEnd={() => this.setState({ isActive: false })}
+				className={cn(style.slider, { [style.active]: this.state.isActive, [style.alt]: this.props.alt })}
+			>
+				<div className={style.sliderValue} ref={ref => (ref && !this.ref && (this.ref = ref))} />
+				<div className={style.sliderText}>{this.props.name}: {this.state.percent}%</div>
+			</div>
+		)
+	}
+}
+
 export default class Home extends Component {
 	constructor(props) {
 		super(props)
@@ -32,72 +90,46 @@ export default class Home extends Component {
 		})
 	}
 
+	changeBrightness(value) {
+		window.emitter.emit('send', `rgb_power ${value}`, true)
+		window.emitter.emit('update', { brightness: value, isLoading: true })
+	}
+
+	changeSpeed(value) {
+		window.emitter.emit('send', `rgb_speed ${value}`, true)
+		window.emitter.emit('update', { speed: value, isLoading: true })
+	}
+
 	render() {
 		const {
-			isHeating,
 			temperature,
 			voltage,
-			isCooling,
 			coolingTemperature,
 			boardTemperature,
 			heaterPower,
-			voltageRaw,
-			fanPower,
 			freeRam,
+			speed,
+			brightness,
 		} = Object.assign({}, this.state, window.store)
-
-		const cool = () => {
-			window.emitter.emit('send', 'cool', true)
-			window.emitter.emit('update', { isCooling: !window.store.isCooling, isLoading: true })
-		}
 
 		const heat = () => {
 			if (window.store.isHeating) {
-				window.emitter.emit('send', `set t=0`, true)
-				window.emitter.emit('send', `heat`, true)
 				window.emitter.emit('update', { isHeating: false })
+				window.emitter.emit('send', `heat`, true)
 			} else {
 				window.emitter.emit('update', { isModalOpened: true })
 			}
 		}
 
-		const stages = 5
-		const coolingMin = 3948, coolingMax = 4095, diff = coolingMax - coolingMin
-		const isStage = new Array(stages).fill(null).reduce((store, _, index) => Object.assign({}, store, {
-			[style[`stage_${index + 1}`]]: index === 0 || (diff - (coolingMax - coolingTemperature)) > (diff / stages * index),
-		}), { })
-
-		const lastStage = Object.keys(isStage).reverse().find(it => isStage[it])
-
 		const mapTags = (tag, index) => (
 			<StatusTag key={index} name={tag[0]} value={tag[1]} />
 		)
 
-		const coolValue = Math.max(0, Math.round((diff - (coolingMax - coolingTemperature)) / diff * 100));
-		const coolValue10 = Math.round(coolValue / 10) * 10;
-
-		const statusColumn1 = [
-			['Cooler', isCooling ? `ON, ${coolValue10}%` : 'OFF'],
-			['Heater', `${heaterPower}%`],
-			['Fan', `${fanPower}%`],
-			['CPU temp', `${boardTemperature}°C`],
-		].map(mapTags)
-
-		const voltageMap = [
-		//  min    max   volts
-			[0,    540,  5],
-			[1100, 1360, 12],
-			[1420, 1680, 15],
-			[1800, 4095, 20],
-		]
-
-		const [,,voltageValue] = voltageMap.find(([ min, max ]) => voltageRaw > min && voltageRaw < max) || [0,0,'5']
-
 		const statusColumn2 = [
-			['Heating', isHeating ? 'Yes' : 'No'],
-			['Cooling', isCooling ? 'Yes' : 'No'],
-			['PSU', `${voltageValue}V`],
-			['Free RAM', `${freeRam} Kb`],
+			['Heater', `${heaterPower}%`],
+			['PSU', `${voltage}`],
+			['CPU', `${boardTemperature}°C`],
+			['RAM', `${freeRam} Kb`],
 		].map(mapTags)
 
 		return (
@@ -110,15 +142,12 @@ export default class Home extends Component {
 						[style.yellow]: temperature > 100 && temperature < 160,
 						[style.green]: temperature < 100 || !parseInt(temperature),
 					})} text={`${temperature}°C`} />
-
-					<StatusLabel onClick={cool} className={cn(style.status_cooling, {
-						[lastStage]: isCooling,
-					})} text={<div className={style.progress} />} />
 				</div>
 
 				<div className={style.card}>
 					<div className={style.column}>
-						{statusColumn1}
+						<Slider name="Brightness" value={brightness} onChange={brightnessValue => this.changeBrightness(brightnessValue)} />
+						<Slider name="Speed" value={speed} onChange={speedValue => this.changeSpeed(speedValue)} />
 					</div>
 
 					<div className={style.column}>

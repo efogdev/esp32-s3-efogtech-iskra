@@ -35,6 +35,10 @@ export default class Settings extends Component {
 			location.href = '/';
 		}
 
+		const stage = (stageIndex) => {
+			window.emitter.emit('send', `stages`)
+		}
+
 		const pdTest = () => {
 			window.emitter.emit('update', { isLoading: true })
 			window.emitter.emit('send', `pd_test`)
@@ -51,19 +55,39 @@ export default class Settings extends Component {
 						Firmware: {window.__firmwareVersion}
 					</div>
 
-					<div className={style.inline}><button onClick={() => pdTest()}>Test PSU</button></div>
-					<div className={cn(style.inline, { [style.capable]: data['12V'], [style.red]: data.tried && !data['12V'] })}><button onClick={() => pd(12)}>12V</button></div>
-					<div className={cn(style.inline, { [style.capable]: data['15V'], [style.red]: data.tried && !data['15V']  })}><button onClick={() => pd(15)}>15V</button></div>
-					<div className={cn(style.inline, { [style.capable]: data['20V'], [style.red]: data.tried && !data['20V']  })}><button onClick={() => pd(20)}>20V</button></div>
+					RGB stages:<br />
+					<div className={cn(style.inline)}><button onClick={() => stage(0)}>Waiting</button></div>
+					<div className={cn(style.inline)}><button onClick={() => stage(1)}>Idle</button></div>
+					<div className={cn(style.inline)}><button onClick={() => stage(2)}>Heating</button></div>
+
+					<br />
+					<br />
+
+					<div className={cn(style.inline, { [style.capable]: data['12V'], [style.red]: !data['12V'] })}><button disabled={!data['12V']} onClick={() => pd(12)}>20W</button></div>
+					<div className={cn(style.inline, { [style.capable]: data['15V'], [style.red]: !data['15V']  })}><button disabled={!data['15V']} onClick={() => pd(15)}>30W</button></div>
+					<div className={cn(style.inline, { [style.capable]: data['20V'], [style.red]: !data['20V']  })}><button disabled={!data['20V']} onClick={() => pd(20)}>65W</button></div>
 
 					<br />
 
+					<div className={style.inline}><button onClick={() => pdTest()}>Test PSU</button></div>
 					<div className={style.inline}><button onClick={() => reboot()}>Reboot</button></div>
+
+					<br />
+
 					<div className={style.inline}><input id="btn" type="button" value="Firmware update" onClick={() => this.setState({ showOta: !data.showOta })} /></div>
+
+					<iframe sandbox="allow-same-origin allow-scripts allow-popups allow-forms" className={cn(style.frame, { [style.visible]: data.showOta })} src="/ota" />
 				</div>
 
 				<div className={style.card}>
-					<iframe sandbox="allow-same-origin allow-scripts allow-popups allow-forms" className={cn(style.frame, { [style.visible]: data.showOta })} src="/ota" />
+					<div className={style.log}>
+						{data.log.map((item, index) => (
+							<div key={index} className={style.item}>
+								<div className={style.time}>{new Date(item.timestamp).toLocaleTimeString()}</div>
+								<div className={style.text}>{item.text}</div>
+							</div>
+						))}
+					</div>
 				</div>
 			</div>
 		);

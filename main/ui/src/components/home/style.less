@@ -22,7 +22,7 @@
 
 	.card {
 		flex: 1 1 50%;
-		padding: 40px;
+		padding: 16px;
 		display: flex;
 		justify-content: center;
 		position: relative;
@@ -153,5 +153,60 @@
 @media (orientation: portrait) {
 	.home {
 
+	}
+}
+
+.slider {
+	width: 120px;
+	height: 32px;
+	min-height: 32px;
+	background: #ddd;
+	border-radius: 6px;
+	box-shadow: 0 0 3px 0 #444a;
+	position: relative;
+	margin-top: 16px;
+	margin-bottom: 16px;
+	//overflow-x: hidden;
+	//overflow-y: visible;
+
+	.sliderValue {
+		border-radius: 6px;
+		border-top-right-radius: unset;
+		border-bottom-right-radius: unset;
+		width: 0;
+		pointer-events: none;
+		height: 100%;
+		background: #673ab7;
+		opacity: .5;
+		transition: all .2s ease;
+	}
+
+	.sliderText {
+		position: absolute;
+		top: -16px;
+		font-size: 12px;
+		left: 0;
+		right: 0;
+		text-align: center;
+	}
+
+	&.active {
+		box-shadow: 0 0 3px 0 #673ab7;
+
+		.sliderValue {
+			opacity: 1;
+		}
+	}
+
+	&.alt {
+		.sliderValue {
+			background: #e59bff;
+		}
+
+		&.active {
+			.sliderValue {
+				background: #e59bff;
+			}
+		}
 	}
 }

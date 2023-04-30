@@ -11,10 +11,6 @@
     <style>
         body {
             padding: 0;
-            display: flex;
-            flex-direction: column;
-            justify-content: center;
-            align-items: center;
             height: 100vh;
             width: 100vw;
 			overflow: hidden;
@@ -22,10 +18,6 @@
 
         input {
             padding: 12px 24px;
-        }
-
-        [type="file"] {
-            text-align: center;
         }
 
         button, [type="button"] {
@@ -73,13 +65,19 @@
 
             const req = new XMLHttpRequest();
             req.open('POST', '/upload', true);
-
-            req.onload = () => {
-                button.value = 'Rebooting...';
-                button.setAttribute('disabled', 'disabled');
-            };
-
             req.send(input.files[0]);
+
+			req.onload = () => {
+				button.value = 'Done. Rebooting';
+				button.setAttribute('disabled', 'disabled');
+
+				window.parent.postMessage('ota_done', '*');
+			};
+
+			req.onerror = () => {
+				button.value = 'Error';
+				button.setAttribute('disabled', 'disabled');
+			};
 
             input.style.display = 'none';
             button.value = 'Uploading...';

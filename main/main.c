@@ -6,7 +6,6 @@
 #include "freertos/task.h"
 #include "esp_log.h"
 #include "esp_system.h"
-#include "nvs_flash.h"
 #include "esp_event.h"
 #include "esp_netif.h"
 #include "protocol_examples_common.h"
@@ -17,6 +16,7 @@
 #include "esp_adc/adc_cali_scheme.h"
 #include "driver/gpio.h"
 #include "driver/dedic_gpio.h"
+#include "adc_cali_interface.h"
 #include <inttypes.h>
 #include "esp_http_client.h"
 #include "esp_http_server.h"
@@ -28,16 +28,23 @@
 #include "esp_flash_partitions.h"
 #include "esp_partition.h"
 #include "driver/temperature_sensor.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 #include "const.c"
 
-static const char *TAG = "EFOGTECH-ISKRA";
+static const char *TAG = "EFOGTECH";
 
+static TaskHandle_t dns_task_handle = NULL;
 static volatile int requestUsbPdVolts = 0;
 static volatile int usbVrefVoltage = -1;
+static volatile int usbVrefVoltageValue = -1;
+static volatile int usbVrefVoltageMv = -1;
+static char voltageString[24] = "";
 static volatile int cc1 = -1, cc2 = -1;
 static volatile int boardTemperature = -1;
 static volatile int heaterTemperature = -1;
-static volatile int heaterPwm = 1;
+static volatile int heaterTemperatureC = -1;
+static volatile int heaterPwm = 0;
 static volatile int waterTemperature = -1;
 static volatile int radiatorTemperature = -1;
 static volatile int targetTemperature = 220;
@@ -50,11 +57,15 @@ static volatile bool isHeating = false;
 static volatile bool isCooling = false;
 static volatile bool pdCapable12 = false, pdCapable15 = false, pdCapable20 = false;
 static volatile bool isWaitingForConnection = true;
-static const int voltageMaxThreshold = 1100;
-static const int voltageCoolingThreshold = 1420;
+static const int voltageThreshold = 1100;
 temperature_sensor_handle_t temp_sensor = NULL;
+static adc_cali_handle_t adc_cali_handle;
 
 static esp_err_t start_file_server(httpd_handle_t);
+static void makeAdcReads();
+static void rgb_tick();
+static void rgb_init();
+static void ws_log(char*);
 
 static volatile enum THINKING_REASON thinkingReason = REASON_DEFAULT;
 
@@ -162,6 +173,10 @@ static void pdTest() {
     isPDTesting = true;
 }
 
+static httpd_handle_t getServer() {
+    return webserver;
+}
+
 esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 {
     switch(evt->event_id) {
@@ -180,6 +195,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 static void setConnected() {
     isWaitingForConnection = false;
+    set_rgb_stage(RGB_STAGE_IDLE);
 }
 
 static void setPD(int volts) {
@@ -193,10 +209,6 @@ static void setTargetTemperature(int temp) {
 }
 
 static void startHeating() {
-    if (isCooling) {
-        setPD(20);
-    }
-
     isHeating = true;
 
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
@@ -227,27 +239,21 @@ static void toggleHeating() {
     isHeating = !isHeating;
 
     if (isHeating) {
-//        gpio_set_level(GPIO_NUM_LED_HEAT, 1);
         startHeating();
     } else {
-//        gpio_set_level(GPIO_NUM_LED_HEAT, 0);
         stopHeating();
     }
 }
 
 static void startCooling() {
-    if (isHeating) {
-        setPD(20);
-    } else {
-        setPD(15);
-    }
-
     fanValue = PWM_MAX;
     isCooling = true;
 }
 
 static void stopCooling() {
     isCooling = false;
+
+    fanValue = 0;
 }
 
 static void toggleCooling() {
@@ -357,9 +363,30 @@ static void initAdc() {
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, USB_VREF_ADC_CHANNEL, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc2_handle, TEMP_ADC_CHANNEL, &config));
     ESP_ERROR_CHECK(adc_oneshot_config_channel(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &config));
+
+    adc_cali_curve_fitting_config_t cali_config = {
+            .unit_id = ADC_UNIT_1,
+            .atten = ADC_ATTEN_DB_11,
+            .bitwidth = ADC_BITWIDTH_12,
+    };
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali_config, &adc_cali_handle));
+
+    adc_cali_curve_fitting_config_t cali2_config = {
+            .unit_id = ADC_UNIT_2,
+            .atten = ADC_ATTEN_DB_11,
+            .bitwidth = ADC_BITWIDTH_12,
+    };
+    ESP_ERROR_CHECK(adc_cali_create_scheme_curve_fitting(&cali2_config, &adc_cali_handle));
+
+    makeAdcReads();
 }
 
-static void IRAM_ATTR makeAdcReads() {
+static volatile int averageVoltageRaw;
+static volatile bool voltageWarning = false;
+static volatile int vbuffer_index = 0;
+#define vbuffer_size 16
+static volatile int voltageBuffer[vbuffer_size];
+static void makeAdcReads() {
     int sum_1 = 0, sum_2 = 0, sum_3 = 0, sum_4 = 0;
     int8_t multisample = 32;
 
@@ -385,8 +412,26 @@ static void IRAM_ATTR makeAdcReads() {
     waterTemperature = sum_3 / multisample;
     boardTemperature = sum_4 / multisample;
 
+    int usbCalibrated = 0;
+    adc_cali_raw_to_voltage(adc_cali_handle, usbVrefVoltage, &usbCalibrated);
+
+    int volts = (usbCalibrated * (10000 + 1000) / 1000) / 1000;
+    int mV = ((usbCalibrated * (10000 + 1000) / 1000) % 1000) / 100;
+
+    sprintf(voltageString, "%d.%dV", volts, mV);
+
+    usbVrefVoltageValue = usbCalibrated;
+
+    if (vbuffer_index >= vbuffer_size) {
+        vbuffer_index = 0;
+    }
+
+    voltageBuffer[vbuffer_index] = usbCalibrated;
+
     ws_update_voltage(usbVrefVoltage);
     ws_update_temperature(heaterTemperature);
+
+    vbuffer_index++;
 }
 
 extern const char root_start[] asm("_binary_index_html_start");
@@ -510,7 +555,7 @@ static httpd_handle_t start_webserver(void)
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
-        start_dns_server();
+        start_dns_server(dns_task_handle);
 
         httpd_register_uri_handler(server, &ota);
         httpd_register_uri_handler(server, &manifest);
@@ -529,184 +574,188 @@ static httpd_handle_t start_webserver(void)
     return server;
 }
 
-static void IRAM_ATTR rgb_task(void *pvParameters)
+static void rgb_set(int r, int g, int b) {
+    ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, r);
+    ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+
+    ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, g);
+    ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
+
+    ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, b);
+    ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
+}
+
+static void rgb_task(void *pvParameters)
 {
-    const int BRIGHTNESS_MAX = RGB_MAX * 0.8;
-    const int RED_BRIGHTNESS_MIN = RGB_MAX * 0.1;
-    int pulseDuty = 0;
-    int redPulseDuty = BRIGHTNESS_MAX;
-    bool redPulseDirection = 0;
+    rgb_clean();
 
     while (1) {
-        if (usbVrefVoltage < voltageMaxThreshold) {
-            ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
-            ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
+        gpio_set_level(GPIO_NUM_LED_HEAT, heaterTemperatureC > 120);
 
-            ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, 0);
-            ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
-
-            ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
-            ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
-
+        if (usbVrefVoltage < voltageThreshold) {
+            rgb_set(0, 0, 0);
             vTaskDelay(pdMS_TO_TICKS(128));
             continue;
         }
 
-        if (isWaitingForConnection) {
-            pulseDuty += 8;
-            pulseDuty *= 1.013;
-
-            if (pulseDuty >= BRIGHTNESS_MAX) {
-                vTaskDelay(pdMS_TO_TICKS(600));
-                pulseDuty = 0;
-            }
-
-            ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, pulseDuty);
-            ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
-        } else {
-            ledc_set_duty(PWM_MODE, RGB_CHANNEL_G, 0);
-            ledc_update_duty(PWM_MODE, RGB_CHANNEL_G);
-
-            if (isHeating) {
-                if (redPulseDuty >= BRIGHTNESS_MAX)
-                    redPulseDirection = 0;
-
-                if (redPulseDuty < RED_BRIGHTNESS_MIN) {
-                    redPulseDuty = RED_BRIGHTNESS_MIN;
-                    redPulseDirection = 1;
-                }
-
-                if (redPulseDirection == 1) {
-                    redPulseDuty += 16;
-                } else {
-                    redPulseDuty -= 16;
-                }
-
-
-                ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, 0);
-                ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
-
-                ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, redPulseDuty);
-                ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
-            } else {
-                ledc_set_duty(PWM_MODE, RGB_CHANNEL_B, BRIGHTNESS_MAX);
-                ledc_update_duty(PWM_MODE, RGB_CHANNEL_B);
-
-                ledc_set_duty(PWM_MODE, RGB_CHANNEL_R, 0);
-                ledc_update_duty(PWM_MODE, RGB_CHANNEL_R);
-            }
-        }
-
-        vTaskDelay(pdMS_TO_TICKS(24));
+        rgb_tick();
+        vTaskDelay(pdMS_TO_TICKS(16));
     }
 }
 
-static void IRAM_ATTR soft_pwm_task(void *pvParameters) {
-    int baseDelay = 64;
-    int state = 0;
-
-    const int PEL_PWM_MAX = 18;
-
+static void call_911_task(void *pvParameters) {
     while (1) {
-        if (usbVrefVoltage < voltageCoolingThreshold) {
-            gpio_set_level(GPIO_NUM_PELTIER, 0);
-            vTaskDelay(pdMS_TO_TICKS(400));
-            continue;
-        }
-
-        if (!isCooling) {
-            gpio_set_level(GPIO_NUM_PELTIER, 0);
-            vTaskDelay(pdMS_TO_TICKS(600));
-            continue;
-        }
-
-        if (peltierValue == 0) {
-            gpio_set_level(GPIO_NUM_PELTIER, 0);
-            vTaskDelay(pdMS_TO_TICKS(baseDelay * 16));
-            continue;
-        }
-
-        if (isHeating && heaterPwm < 0.5) {
-            peltierValue = PEL_PWM_MAX;
-        }
-
-        if (peltierValue > PEL_PWM_MAX)
-            peltierValue = PEL_PWM_MAX;
-
-        int delayTicks;
-
-        if (state == 0) {
-            delayTicks = peltierValue;
-        } else {
-            delayTicks = PWM_MAX - peltierValue;
-        }
-
-        state = !state;
-        gpio_set_level(GPIO_NUM_PELTIER, state);
-
-        vTaskDelay(pdMS_TO_TICKS(baseDelay * delayTicks));
+//        if (heaterTemperatureC > targetTemperature + 20) {
+//            isHeating = 0;
+//            targetTemperature = 0;
+//            heaterPwm = 0;
+//            stopHeating();
+//        }
+//
+//        if (boardTemperature > 75) {
+//            esp_system_abort("OVERHEAT");
+//        }
+//
+//        if (heaterTemperatureC > 400) {
+//            esp_restart();
+//        }
+//
+        vTaskDelay(pdMS_TO_TICKS(32));
     }
 }
 
-static void IRAM_ATTR fan_soft_pwm_task(void *pvParameters) {
-    int baseDelay = 12;
-
-    while (1) {
-        if (usbVrefVoltage < voltageMaxThreshold) {
-            gpio_set_level(GPIO_NUM_FAN, 0);
-            vTaskDelay(pdMS_TO_TICKS(400));
-            continue;
-        }
-
-        if (fanValue == 0) {
-            gpio_set_level(GPIO_NUM_FAN, 0);
-            vTaskDelay(pdMS_TO_TICKS(baseDelay * 64));
-            continue;
-        } else {
-            fanValue = PWM_MAX;
-            gpio_set_level(GPIO_NUM_FAN, 1);
-            vTaskDelay(pdMS_TO_TICKS(baseDelay * 32));
-            continue;
-        }
-    }
-}
-
-static void IRAM_ATTR pd_task(void *pvParameters) {
+static void pd_task(void *pvParameters) {
     int actualValue = 0;
 
     gpio_set_level(GPIO_NUM_PD_CFG2, 1);
-    gpio_set_level(GPIO_NUM_PD_CFG3, 0);
+    gpio_set_level(GPIO_NUM_PD_CFG3, 1);
+
+    nvs_handle_t nvs;
+    nvs_open("storage", NVS_READWRITE, &nvs);
+
+    uint8_t isPdTested;
+    nvs_get_u8(nvs, "pd_tested", &isPdTested);
+
+    if (isPdTested == 1) {
+        isPDTesting = false;
+
+        uint8_t vcc12, vcc15, vcc20;
+        nvs_get_u8(nvs, "vcc12", &vcc12);
+        nvs_get_u8(nvs, "vcc15", &vcc15);
+        nvs_get_u8(nvs, "vcc20", &vcc20);
+
+        if (vcc12 == 1)
+            pdCapable12 = true;
+
+        if (vcc15 == 1)
+            pdCapable15 = true;
+
+        if (vcc20 == 1)
+            pdCapable20 = true;
+
+        if (pdCapable15)
+            setPD(15);
+    } else {
+        isPDTesting = true;
+    }
+
+    nvs_set_u8(nvs, "pd_tested", 0);
 
     while (1) {
-        if (usbVrefVoltage < voltageMaxThreshold) {
+        if (usbVrefVoltage < voltageThreshold) {
             disable_all();
         }
 
-        if (isPDTesting) {
+        if (isPDTesting && (usbVrefVoltage > voltageThreshold)) {
             setThinking(REASON_TEST, true);
             disable_all();
+            vTaskDelay(pdMS_TO_TICKS(120));
+
+            nvs_set_u8(nvs, "vcc12", 0);
+            nvs_set_u8(nvs, "vcc15", 0);
+            nvs_set_u8(nvs, "vcc20", 0);
+            nvs_set_u8(nvs, "pd_tested", 1);
+
+            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
+            ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 0);
             gpio_set_level(GPIO_NUM_PD_CFG3, 1);
+            vTaskDelay(pdMS_TO_TICKS(320));
 
-            vTaskDelay(pdMS_TO_TICKS(300));
+            pdCapable12 = true;
+            nvs_set_u8(nvs, "vcc12", 1);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 1);
             gpio_set_level(GPIO_NUM_PD_CFG3, 1);
+            vTaskDelay(pdMS_TO_TICKS(320));
 
-            vTaskDelay(pdMS_TO_TICKS(300));
+            pdCapable15 = true;
+            nvs_set_u8(nvs, "vcc15", 1);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 1);
             gpio_set_level(GPIO_NUM_PD_CFG3, 0);
+            vTaskDelay(pdMS_TO_TICKS(320));
 
-            vTaskDelay(pdMS_TO_TICKS(300));
+            pdCapable20 = true;
+            nvs_set_u8(nvs, "vcc20", 1);
 
+            if (pdCapable15) {
+                setPD(15);
+            } else {
+                setPD(12);
+            }
+
+            nvs_set_u8(nvs, "pd_tested", 0);
             setThinking(REASON_TEST, false);
             isPDTesting = false;
+
+            continue;
+        }
+
+        if (vbuffer_index > 0) {
+            int count = 0, sum = 0;
+            for (int i = 0; i < vbuffer_index; i++) {
+                int value = voltageBuffer[i];
+
+                if (value > 0) {
+                    count++;
+                    sum += value;
+                }
+            }
+
+            averageVoltageRaw = sum / count;
+        }
+
+        if (averageVoltageRaw > 0) {
+            int percentChange = 100 - (usbVrefVoltageValue * 100 / averageVoltageRaw);
+
+            if (percentChange < -5) {
+                char text[64];
+                sprintf(text, "Voltage peak? Vraw_avg: %d, Vraw: %d", averageVoltageRaw, usbVrefVoltageValue);
+                ws_log(text);
+            }
+
+            if (percentChange > 5) {
+                char text[64];
+                sprintf(text, "Voltage drop! Vraw_avg = %d, Vraw = %d", averageVoltageRaw, usbVrefVoltageValue);
+                ws_log(text);
+
+                voltageWarning = true;
+
+                if (isHeating) {
+                    stopHeating();
+                    vTaskDelay(pdMS_TO_TICKS(250));
+                    startHeating();
+                }
+
+                vTaskDelay(pdMS_TO_TICKS(1400));
+                voltageWarning = false;
+            }
         }
 
         if (requestUsbPdVolts == actualValue) {
-            vTaskDelay(pdMS_TO_TICKS(16));
+            vTaskDelay(pdMS_TO_TICKS(128));
             continue;
         }
 
@@ -735,23 +784,14 @@ static void IRAM_ATTR pd_task(void *pvParameters) {
     }
 }
 
-static void IRAM_ATTR report_task(void *pvParameters) {
-    vTaskDelay(pdMS_TO_TICKS(800));
-
+static void report_task(void *pvParameters) {
     while (1) {
         if (!webserver) {
-            vTaskDelay(pdMS_TO_TICKS(200));
+            vTaskDelay(pdMS_TO_TICKS(360));
             continue;
         }
 
-        if (usbVrefVoltage > 1100 && usbVrefVoltage < 1360)
-            pdCapable12 = true;
-
-        if (usbVrefVoltage > 1420 && usbVrefVoltage < 1680)
-            pdCapable15 = true;
-
-        if (usbVrefVoltage > voltageMaxThreshold)
-            pdCapable20 = true;
+        vTaskDelay(pdMS_TO_TICKS(360));
 
         float ntcResistance = 5600 * (1 / (3.3 / ((3.3 * heaterTemperature) / 4096) - 1));
 
@@ -763,36 +803,30 @@ static void IRAM_ATTR report_task(void *pvParameters) {
         temperature = 1.0 / temperature;
         temperature -= 273.15;
 
-        if (isHeating && (usbVrefVoltage > voltageMaxThreshold)) {
-            if (temperature < targetTemperature / 2) {
-                heaterPwm = PWM_MAX;
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
-                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-            } else if (temperature < targetTemperature - 20) {
-                if (targetTemperature < 290) {
-                    heaterPwm = PWM_MAX * 0.85;
-                    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.85);
-                    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-                } else {
+        heaterTemperatureC = temperature;
+
+        if (!isPDTesting) {
+            if (isHeating && (usbVrefVoltage > voltageThreshold)) {
+                if (temperature < targetTemperature - 20) {
                     heaterPwm = PWM_MAX;
                     ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
                     ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+                } else if (temperature < targetTemperature - 10) {
+                    heaterPwm = PWM_MAX * 0.9;
+                    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
+                    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+                } else if (temperature >= targetTemperature) {
+                    heaterPwm = PWM_MAX * 0.5;
+
+                    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.5);
+                    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
                 }
-            } else if (temperature >= targetTemperature) {
-                heaterPwm = 0;
-
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0);
-                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             } else {
-                heaterPwm = PWM_MAX * 0.6;
-                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.6);
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-            }
-        } else {
-            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
-            ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 
-            heaterPwm = 0;
+                heaterPwm = 0;
+            }
         }
 
         char buf[640];
@@ -801,8 +835,8 @@ static void IRAM_ATTR report_task(void *pvParameters) {
             isHeating ? "true" : "false", // isHeating
             (int) temperature, // temperature, C
             (int) waterTemperature, // radiator temp ADC raw data
-            "N/A", // voltage
-            voltage > voltageMaxThreshold ? "true" : "false", // isVoltageOk
+            voltageString, // voltage
+            (!voltageWarning && (usbVrefVoltage > voltageThreshold)) ? "true" : "false", // isVoltageOk
             isCooling ? "true" : "false", // isCooling
             (int) boardTemperature, // board temp, C
             isHeating ? (int) (((float) heaterPwm / PWM_MAX) * 100) : 0, // heater %
@@ -824,10 +858,8 @@ static void IRAM_ATTR report_task(void *pvParameters) {
 
         ws_send_frame_to_all_clients(&pkt, webserver);
 
-        vTaskDelay(pdMS_TO_TICKS(20));
         makeAdcReads();
-
-        vTaskDelay(pdMS_TO_TICKS(124));
+        vTaskDelay(pdMS_TO_TICKS(128));
     }
 }
 
@@ -853,16 +885,10 @@ void app_main(void)
 
     io_conf.pin_bit_mask = (
             (1ULL << GPIO_NUM_PD_CFG2)
+            | (1ULL << GPIO_NUM_PD_CFG3)
         );
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 1;
-    gpio_config(&io_conf);
-
-    io_conf.pin_bit_mask = (
-            (1ULL << GPIO_NUM_PD_CFG3)
-    );
-    io_conf.pull_down_en = 1;
-    io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
     io_conf.intr_type = GPIO_INTR_DISABLE;
@@ -893,22 +919,20 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
+    ESP_LOGI(TAG, "Init emergency");
+    xTaskCreate(&call_911_task, "call_911_task", 8192, NULL, 1, NULL);
+
     ESP_LOGI(TAG, "Init ADC");
     initAdc();
 
     ESP_LOGI(TAG, "Init PWM");
     initPwm();
 
-    ESP_LOGI(TAG, "Init load");
-    setPeltierValue(16);
-    setFanValue(PWM_MAX);
-
-    ESP_LOGI(TAG, "Init soft PWM");
-    xTaskCreate(&pd_task, "pd_task", 2048, NULL, 2, NULL);
-    xTaskCreate(&soft_pwm_task, "soft_pwm_task", 2048, NULL, 6, NULL);
-    xTaskCreate(&fan_soft_pwm_task, "fan_soft_pwm_task", 2048, NULL, 14, NULL);
+    ESP_LOGI(TAG, "Init PD");
+    xTaskCreate(&pd_task, "pd_task", 4096, NULL, 4, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
+    rgb_init();
     xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
 
     ESP_LOGI(TAG, "Init report service");

@@ -20,7 +20,7 @@
 #define WIFI_CHANNEL   7
 #define DNS    "DNS"
 
-// static const char *TAG = "EFOGTECH-ISKRA";
+static void ws_log(char*);
 
 static void initWifi()
 {
@@ -35,12 +35,9 @@ static void initWifi()
             .ssid_len = strlen(WIFI_SSID),
             .channel = WIFI_CHANNEL,
             .password = WIFI_PASS,
-            .max_connection = 1,
+            .max_connection = 4,
             .authmode = WIFI_AUTH_WPA_WPA2_PSK,
-            .pmf_cfg = {
-                    .required = false,
-            },
-        },
+        }
     };
 
     ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_AP));
@@ -56,7 +53,6 @@ static void initWifi()
 #define QD_TYPE_A (0x0001)
 #define ANS_TTL_SEC (300)
 
-// DNS Header Packet
 typedef struct __attribute__((__packed__))
 {
     uint16_t id;
@@ -67,13 +63,11 @@ typedef struct __attribute__((__packed__))
     uint16_t ar_count;
 } dns_header_t;
 
-// DNS Question Packet
 typedef struct {
     uint16_t type;
     uint16_t class;
 } dns_question_t;
 
-// DNS Answer Packet
 typedef struct __attribute__((__packed__))
 {
     uint16_t ptr_offset;
@@ -84,10 +78,6 @@ typedef struct __attribute__((__packed__))
     uint32_t ip_addr;
 } dns_answer_t;
 
-/*
-    Parse the name from the packet from the DNS name format to a regular .-seperated name
-    returns the pointer to the next part of the packet
-*/
 static char *parse_dns_name(char *raw_name, char *parsed_name, size_t parsed_name_max_len)
 {
 
@@ -97,26 +87,23 @@ static char *parse_dns_name(char *raw_name, char *parsed_name, size_t parsed_nam
 
     do {
         int sub_name_len = *label;
-        // (len + 1) since we are adding  a '.'
+
         name_len += (sub_name_len + 1);
         if (name_len > parsed_name_max_len) {
             return NULL;
         }
 
-        // Copy the sub name that follows the the label
         memcpy(name_itr, label + 1, sub_name_len);
         name_itr[sub_name_len] = '.';
         name_itr += (sub_name_len + 1);
         label += sub_name_len + 1;
     } while (*label != 0);
 
-    // Terminate the final string, replacing the last '.'
     parsed_name[name_len - 1] = '\0';
-    // Return pointer to first char after the name
+
     return label + 1;
 }
 
-// Parses the DNS request and prepares a DNS response with the IP of the softAP
 static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t dns_reply_max_len)
 {
     if (req_len > dns_reply_max_len) {
@@ -188,10 +175,10 @@ static int parse_dns_request(char *req, size_t req_len, char *dns_reply, size_t 
     Sets up a socket and listen for DNS queries,
     replies to all type A queries with the IP of the softAP
 */
-static IRAM_ATTR void dns_server_task(void *pvParameters)
+static void dns_server_task(void *pvParameters)
 {
-    char rx_buffer[256];
-    char addr_str[128];
+    char rx_buffer[512];
+    char addr_str[256];
     int addr_family;
     int ip_protocol;
 
@@ -246,20 +233,20 @@ static IRAM_ATTR void dns_server_task(void *pvParameters)
                     }
                 }
             }
+
+            vTaskDelay(pdMS_TO_TICKS(64));
         }
 
         if (sock != -1) {
             shutdown(sock, 0);
             close(sock);
         }
-
-//        vTaskDelay(pdMS_TO_TICKS(60));
     }
 
     vTaskDelete(NULL);
 }
 
-void start_dns_server(void)
+void start_dns_server(TaskHandle_t dns_task_handle)
 {
-    xTaskCreate(&dns_server_task, "dns_server", 8192, NULL, 4, NULL);
+    xTaskCreate(&dns_server_task, "dns_server", 8192, NULL, 4, &dns_task_handle);
 }

@@ -14,6 +14,10 @@
 	align-items: center;
 }
 
+.hide {
+	display: none !important;
+}
+
 .modal {
 	.title {
 		margin-bottom: 12px;
@@ -37,6 +41,10 @@
 		border-radius: 6px;
 		border: none;
 		margin-right: 12px;
+
+		&:last-child {
+			margin-right: 0;
+		}
 	}
 
 	.red {
@@ -47,6 +55,90 @@
 
 	.primary {
 
+	}
+
+	&.colors {
+		text-align: center;
+		height: 100vh;
+		padding: 20px 20px;
+		min-height: 80vh;
+		display: flex;
+		flex-direction: column;
+
+		.spacer {
+			height: 20px;
+		}
+
+		.pickers {
+			flex: 1 1 auto;
+			display: flex;
+			flex-direction: column;
+			width: 100vw;
+			align-items: center;
+			overflow-y: scroll;
+		}
+
+		.picker {
+			min-height: 36px;
+			margin-bottom: 16px;
+			position: relative;
+			padding: 10px 12px;
+			font-size: 14px;
+			border-radius: 12px;
+			margin-left: auto;
+			margin-right: auto;
+			width: 120px;
+			border: 1px solid #444;
+			box-shadow: 0 0 1px 0 #444a;
+			background: #fefefe;
+			color: #444;
+			display: flex;
+			flex-direction: row;
+			justify-content: flex-end;
+			align-items: center;
+
+			.visual {
+				content: '';
+				position: absolute;
+				left: 0;
+				top: 0;
+				bottom: 0;
+				width: 32px;
+				background: red;
+				box-shadow: none;
+				border-top-left-radius: 10px;
+				border-bottom-left-radius: 10px;
+			}
+
+			.remove {
+				position: absolute;
+				font-size: 12px;
+				color: white;
+				background: #a00;
+				bottom: -8px;
+				right: -8px;
+				width: 24px;
+				height: 24px;
+				border-radius: 24px;
+				display: flex;
+				justify-content: center;
+				align-items: center;
+				box-shadow: 0 0 2px 1px #444a;
+			}
+
+			input[type="color"] {
+				position: absolute;
+				visibility: hidden;
+			}
+		}
+
+		.title {
+			margin-bottom: 36px;
+		}
+
+		.controls {
+			margin-top: 24px;
+		}
 	}
 }
 

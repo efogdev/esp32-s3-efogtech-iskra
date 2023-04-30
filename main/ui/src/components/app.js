@@ -2,7 +2,7 @@ import { h, Component } from 'preact';
 import { Router } from 'preact-router';
 
 import Header from './header';
-import Home from './home';
+import Home, { Slider } from './home';
 import Profile from './profile';
 import style from './style.less';
 import cn from 'classnames';
@@ -18,7 +18,10 @@ window.store = {
 	isOnline: false,
 	isCooling: false,
 	coolingTemperature: 0,
+	brightness: 60,
+	speed: 60,
 	isModalOpened: false,
+	isStageEditorOpened: false,
 	targetTemperature: 240,
 	boardTemperature: 'N/A',
 	heaterPower: 'N/A',
@@ -29,7 +32,14 @@ window.store = {
 	'12V': false,
 	'15V': false,
 	'20V': false,
+	rgbStageIdle: [],
+	rgbStages: {},
+	log: [
+		{ timestamp: Date.now(), text: 'UI launched' },
+	],
 }
+
+let updateCache = {};
 
 window.emitter = new class EventEmitter {
 	handlers = [];
@@ -47,7 +57,7 @@ window.emitter = new class EventEmitter {
 		this.handlers.push({ event, callback, once: true })
 	}
 
-	emit(event, data = null, nocache = false) {
+	emit(event, data = null, nocache = true) {
 		const toRemove = []
 
 		this.handlers.forEach((it, index) => {
@@ -70,19 +80,124 @@ window.emitter = new class EventEmitter {
 				this.cache[event].push({ ...data, callback: it.callback })
 			}
 
-			console.log(`[EVENT]`, event, data)
-
 			try {
 				it.callback(data)
 			} catch (e) {}
-
-			console.log(`[STORE]`, window.store)
 
 			if (it.once)
 				toRemove.push(index)
 		})
 
 		this.handlers = this.handlers.filter((it, index) => !toRemove.includes(index))
+
+		if (event === 'update') {
+			if (!updateCache)
+				updateCache = { ...window.store };
+
+			const diff = Object.keys(data)
+				.filter(key => updateCache[key] !== data[key] && key !== 'update')
+
+			if (!diff.length)
+				return
+
+			window.store.log.push({
+				timestamp: Date.now(),
+				text: diff.map(key => `${key} = ${data[key]}`).join(', '),
+			});
+
+			updateCache = { ...window.store };
+		}
+	}
+}
+
+class StageEditor extends Component {
+	constructor(props) {
+		super(props)
+
+		this.state = {
+			values: [ '#ff0000', '#0000ff', '#00ff00' ],
+		}
+
+		this.refs = {}
+	}
+
+	componentDidMount() {
+		window.emitter.on('refresh', () => {
+			setTimeout(() => this.forceUpdate())
+		})
+	}
+
+	setRef(ref, index) {
+		this.refs[index] = ref
+		this.updateColor(index)
+	}
+
+	updateColor(index) {
+		if (!this.refs[index])
+			return
+
+		this.refs[index].querySelector('div').style.background = this.state.values[index]
+	}
+
+	click(index) {
+		if (!this.refs[index])
+			return
+
+		this.refs[index].querySelector('input[type="color"]').click()
+	}
+
+	render() {
+		const { values } = this.state
+
+		return (
+			<div className={style.pickers}>
+				<Slider alt name="Brightness" value={0} onChange={null} />
+				<Slider alt name="Speed" value={0} onChange={null} />
+
+				<div className={style.spacer} />
+
+				{values.map((it, index) => (
+					<div
+						ref={ref => ref && this.setRef(ref, index)}
+						key={index}
+						className={style.picker}
+						onClick={() => this.click(index)}
+					>
+						<div className={style.visual}></div>
+
+						<input
+							type="color"
+							value={it}
+							onChange={(e) => {
+								const newValues = this.state.values.slice()
+								newValues[index] = e.target.value
+
+								this.setState({ values: newValues })
+							}}
+						/>
+
+						{it || '#000000'}
+
+						<div onClick={e => {
+							if (values.length <= 1)
+								return
+
+							e.stopPropagation()
+							e.preventDefault()
+
+							const newValues = this.state.values.slice()
+							newValues.splice(index, 1)
+
+							this.setState({ values: newValues })
+						}} className={style.remove}>x</div>
+					</div>
+				))}
+
+				<div className={style.controls}>
+					<button onClick={() => this.setState({ values: [ ...this.state.values, '#ff0000' ] })}>Add</button>
+				</div>
+			</div>
+		);
 	}
 }
 
@@ -94,6 +209,11 @@ class Overlay extends Component {
 	}
 
 	componentDidMount() {
+		window.addEventListener('beforeinstallprompt', (e) => {
+			e.preventDefault();
+			e.prompt();
+		})
+
 		window.emitter.on('refresh', () => {
 			setTimeout(() => this.forceUpdate())
 		})
@@ -102,8 +222,8 @@ class Overlay extends Component {
 	heat() {
 		const text = parseInt(document.querySelector('#modal-input').value)
 
-		if (isNaN(text) || text < 120 || text > 320)
-			return alert(`Sorry, but the limit is 120-320°C.`)
+		if (isNaN(text) || text < 160 || text > 260)
+			return alert(`Sorry, but the limit is 160-260°C.`)
 
 		window.emitter.emit('update', { targetTemperature: text, isModalOpened: false, isLoading: true, isHeating: true });
 
@@ -112,19 +232,29 @@ class Overlay extends Component {
 	}
 
 	render() {
-		const { isModalOpened } = Object.assign({}, this.state, window.store)
+		const { isModalOpened, isStageEditorOpened } = Object.assign({}, this.state, window.store)
 
 		return (
-			<div className={cn(style.overlay, { 'flex': isModalOpened })}>
-				<div className={style.modal}>
+			<div className={cn(style.overlay, { 'flex': isModalOpened || isStageEditorOpened })}>
+				<div className={cn(style.modal, { [style.hide]: !isModalOpened })}>
 					<div className={style.title}>Target temperature:</div>
 					<div>
-						{/* :D */}
-						<input placeholder="120-320°C" type="number" id="modal-input" />
+						<input placeholder="160-260°C" type="number" id="modal-input" />
 					</div>
 					<div>
-						<button onClick={this.heat}  className={style.primary}>Heat</button>
+						<button onClick={() => this.heat()}  className={style.primary}>Heat</button>
 						<button onClick={() => window.emitter.emit('update', { isModalOpened: false })} className={style.red}>Cancel</button>
+					</div>
+				</div>
+
+				<div className={cn(style.modal, style.colors, { [style.hide]: !isStageEditorOpened })}>
+					<div className={style.title}>Stage editor</div>
+
+					<StageEditor />
+
+					<div className={style.controls}>
+						<button onClick={() => this.heat()}  className={style.primary}>Set</button>
+						<button onClick={() => window.emitter.emit('update', { isStageEditorOpened: false })} className={style.red}>Cancel</button>
 					</div>
 				</div>
 			</div>

@@ -36,3 +36,7 @@ if [ "$1" = "flash" ]; then
 
 fi
 
+if [ "$1" = "usb" ]; then
+  adb push efogtech_iskra.bin /storage/emulated/0/Download
+fi
+

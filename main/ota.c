@@ -65,6 +65,7 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
         if (image_header_was_checked == false)
         {
             setThinking(REASON_FW, true);
+            disable_all();
 
             esp_app_desc_t new_app_info;
             if (received > sizeof(esp_image_header_t) + sizeof(esp_image_segment_header_t) + sizeof(esp_app_desc_t))
@@ -138,9 +139,6 @@ static esp_err_t upload_post_handler(httpd_req_t *req)
 
     httpd_resp_set_hdr(req, "Connection", "close");
     httpd_resp_sendstr(req, "File uploaded successfully");
-
-    disable_all();
-    esp_restart();
 
     return ESP_OK;
 }

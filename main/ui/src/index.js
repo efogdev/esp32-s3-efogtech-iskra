@@ -9,13 +9,19 @@ class API {
 
 	constructor() {
 		this.tryInit()
+
+		window.addEventListener('message', e => {
+			if (e.data === 'ota_done') {
+				window.emitter.emit('send', 'reboot')
+				window.close()
+			}
+		});
 	}
 
 	initSW() {
 		try {
 			navigator.serviceWorker.register('/sw.js')
-
-			console.log(navigator.serviceWorker);
+				.catch(e => console.log(e))
 
 			navigator.serviceWorker.addEventListener('message', (e) => {
 				console.log(JSON.stringify(e));
@@ -30,8 +36,6 @@ class API {
 			this.init()
 			this.initSW();
 		} catch (e) {
-			console.log(e);
-
 			setTimeout(() => {
 				this.tryInit()
 			}, 5000)
@@ -39,6 +43,8 @@ class API {
 	}
 
 	init() {
+		clearInterval(interval)
+
 		this.ws = new WebSocket("ws://192.168.4.1/ws");
 
 		this.ws.onclose = this.init.bind(this);
@@ -48,6 +54,7 @@ class API {
 		};
 
 		window.emitter.on('send', (data) => {
+			window.store.log.push({ timestamp: Date.now(), text: `-> ${data}` });
 			this.ws.send(data.toString());
 		});
 
@@ -65,8 +72,6 @@ class API {
 						isLoading: false,
 						isOnline: true,
 					})
-
-					window.emitter.emit('send', `pd_request 15`)
 				}
 
 				if (type === 'system') eval(content);
@@ -79,6 +84,15 @@ class API {
 						isOnline: true,
 					});
 
+					window.emitter.emit('refresh', null, true)
+				}
+
+				if (type === 'stage') {
+					window.store.log.push({ timestamp: Date.now(), text: JSON.stringify(content) });
+				}
+
+				if (type === 'log') {
+					window.store.log.push({ timestamp: Date.now(), text: content });
 					window.emitter.emit('refresh', null, true)
 				}
 			} catch (e) { alert(e) }
@@ -95,7 +109,7 @@ class API {
 			window.emitter.emit('refresh', null, true)
 		};
 
-		setInterval(() => {
+		interval = setInterval(() => {
 			updateTemperature()
 		}, 640)
 	}
@@ -111,5 +125,8 @@ function init() {
 if (module.hot) {
 	module.hot.accept('./components/app', () => requestAnimationFrame(init) );
 }
+
+if (location.href !== 'http://192.168.4.1/' && !location.href.includes('localhost'))
+	location.href = 'http://192.168.4.1/'
 
 init();

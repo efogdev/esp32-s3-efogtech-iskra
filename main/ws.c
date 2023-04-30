@@ -12,7 +12,9 @@ static void setConnected();
 static void disable_all();
 static void setPD(int);
 static void pdTest();
+static void fetch_stages();
 static void setTargetTemperature(int);
+static void rgb_save_stage(uint8_t, char*, uint8_t, uint8_t, uint8_t);
 
 struct async_resp_arg {
     httpd_handle_t hd;
@@ -27,7 +29,10 @@ static void ws_update_voltage(int new_voltage) {
     voltage = new_voltage;
 }
 
+static httpd_handle_t server = NULL;
 static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_handle_t server_handle) {
+    server = server_handle;
+
     static const size_t max_clients = CONFIG_LWIP_MAX_LISTENING_TCP;
     size_t fds = max_clients;
     int client_fds[max_clients];
@@ -48,6 +53,22 @@ static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_ha
     }
 
     return ESP_OK;
+}
+
+static void ws_log(char* text) {
+    if (server == NULL)
+        return;
+
+    char buf[256];
+    sprintf(buf, "{\"type\":\"log\",\"content\":\"%s\"}", text);
+
+    httpd_ws_frame_t pkt;
+    memset(&pkt, 0, sizeof(httpd_ws_frame_t));
+    pkt.payload = (uint8_t *) buf;
+    pkt.type = HTTPD_WS_TYPE_TEXT;
+    pkt.len = strlen(buf);
+
+    ws_send_frame_to_all_clients(&pkt, server);
 }
 
 static esp_err_t echo_handler(httpd_req_t *req)
@@ -111,6 +132,10 @@ static esp_err_t echo_handler(httpd_req_t *req)
             pdTest();
         }
 
+        if (strcmp((const char *) ws_pkt.payload, "stages") == 0) {
+            fetch_stages();
+        }
+
         if (strncmp((const char *) ws_pkt.payload, "pd_request", 10) == 0) {
             int volts = -1;
             sscanf((const char *) ws_pkt.payload, "pd_request %d", &volts);
@@ -121,6 +146,21 @@ static esp_err_t echo_handler(httpd_req_t *req)
                 disable_all();
                 setPD(volts);
             }
+        }
+
+        if (strncmp((const char *) ws_pkt.payload, "save_stage", 5) == 0) {
+            ESP_LOGI(WS_TAG, "Set RGB stage.");
+
+            int new_stage = -1;
+            int new_speed = -1;
+            int new_power = -1;
+            int new_fn = -1;
+            char new_data[512];
+
+            char* stageData = strstr((const char *) ws_pkt.payload, "stage=");
+            sscanf(stageData, "stage=%d fn=%d speed=%d power=%d data=%s", &new_stage, &new_fn, &new_speed, &new_power, &new_data[0]);
+
+            rgb_save_stage(new_stage, new_data, new_fn, new_speed, new_power);
         }
 
         if (strncmp((const char *) ws_pkt.payload, "set", 3) == 0) {
