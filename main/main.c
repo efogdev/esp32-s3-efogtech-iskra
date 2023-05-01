@@ -552,7 +552,7 @@ static httpd_handle_t start_webserver(void)
 
     config.task_priority = 7;
     config.server_port = 80;
-    config.max_open_sockets = 6;
+    config.max_open_sockets = 8;
     config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
     config.send_wait_timeout = 3;
@@ -560,8 +560,6 @@ static httpd_handle_t start_webserver(void)
 
     ESP_LOGI(TAG, "Starting server on port: '%d'", config.server_port);
     if (httpd_start(&server, &config) == ESP_OK) {
-        start_dns_server(dns_task_handle);
-
         httpd_register_uri_handler(server, &ota);
         httpd_register_uri_handler(server, &manifest);
         httpd_register_uri_handler(server, &bundle);
@@ -570,6 +568,8 @@ static httpd_handle_t start_webserver(void)
 
         initWebsocket(server);
         start_file_server(server);
+
+        start_dns_server(dns_task_handle);
 
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     } else {
@@ -685,26 +685,26 @@ static void pd_task(void *pvParameters) {
             nvs_set_u8(nvs, "vcc20", 0);
             nvs_set_u8(nvs, "pd_tested", 1);
 
-            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.8);
+            ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
             ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 0);
             gpio_set_level(GPIO_NUM_PD_CFG3, 1);
-            vTaskDelay(pdMS_TO_TICKS(320));
+            vTaskDelay(pdMS_TO_TICKS(400));
 
             pdCapable12 = true;
             nvs_set_u8(nvs, "vcc12", 1);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 1);
             gpio_set_level(GPIO_NUM_PD_CFG3, 1);
-            vTaskDelay(pdMS_TO_TICKS(320));
+            vTaskDelay(pdMS_TO_TICKS(400));
 
             pdCapable15 = true;
             nvs_set_u8(nvs, "vcc15", 1);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 1);
             gpio_set_level(GPIO_NUM_PD_CFG3, 0);
-            vTaskDelay(pdMS_TO_TICKS(320));
+            vTaskDelay(pdMS_TO_TICKS(400));
 
             pdCapable20 = true;
             nvs_set_u8(nvs, "vcc20", 1);
@@ -719,7 +719,7 @@ static void pd_task(void *pvParameters) {
             setThinking(REASON_TEST, false);
             isPDTesting = false;
 
-            vTaskDelay(pdMS_TO_TICKS(128));
+            vTaskDelay(pdMS_TO_TICKS(20));
             continue;
         }
 
@@ -937,11 +937,11 @@ void app_main(void)
     initPwm();
 
     ESP_LOGI(TAG, "Init PD");
-    xTaskCreate(&pd_task, "pd_task", 3200, NULL, 10, NULL);
+    xTaskCreate(&pd_task, "pd_task", 4400, NULL, 10, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     rgb_init();
-    xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
+    xTaskCreate(&rgb_task, "rgb_task", 3200, NULL, 12, NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();
@@ -950,7 +950,7 @@ void app_main(void)
     webserver = start_webserver();
 
     ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 4096, NULL, 8, NULL);
+    xTaskCreate(&report_task, "report_task", 5600, NULL, 8, NULL);
 
     ESP_LOGI(TAG, "Initialization successful");
 }

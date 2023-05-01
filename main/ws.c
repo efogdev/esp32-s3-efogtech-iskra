@@ -113,6 +113,7 @@ static esp_err_t echo_handler(httpd_req_t *req)
         if (strcmp((const char *) ws_pkt.payload, "on") == 0) {
             ESP_LOGI(WS_TAG, "WiFi connection established!");
             setConnected();
+            fetch_stages();
         }
 
         if (strcmp((const char *) ws_pkt.payload, "heat") == 0) {
@@ -158,7 +159,7 @@ static esp_err_t echo_handler(httpd_req_t *req)
             int new_speed = -1;
             int new_power = -1;
             int new_fn = -1;
-            char new_data[512];
+            char new_data[256];
 
             char* stageData = strstr((const char *) ws_pkt.payload, "stage=");
             sscanf(stageData, "stage=%d fn=%d speed=%d power=%d data=%s", &new_stage, &new_fn, &new_speed, &new_power, &new_data[0]);
