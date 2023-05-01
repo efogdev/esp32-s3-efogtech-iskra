@@ -17,11 +17,6 @@ static void fetch_stages();
 static void setTargetTemperature(int);
 static void rgb_save_stage(uint8_t, char*, uint8_t, uint8_t, uint8_t);
 
-struct async_resp_arg {
-    httpd_handle_t hd;
-    int fd;
-};
-
 static void ws_update_temperature(int new_temperature) {
     _temperature = new_temperature;
 }
@@ -50,7 +45,11 @@ static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_ha
         if (client_info == HTTPD_WS_CLIENT_WEBSOCKET) {
             ESP_LOGI(WS_TAG, "Sending to FD %d", client_fds[i]);
 
-            httpd_ws_send_frame_async(server_handle, client_fds[i], ws_pkt);
+            esp_err_t err = httpd_ws_send_frame_async(server_handle, client_fds[i], ws_pkt);
+
+            if (err == ESP_FAIL) {
+                httpd_sess_trigger_close(server_handle, client_fds[i]);
+            }
         }
     }
 
@@ -75,10 +74,6 @@ static void ws_log(char* text) {
 
 static esp_err_t echo_handler(httpd_req_t *req)
 {
-    if (req == NULL) {
-        return ESP_OK;
-    }
-
     if (req->method == HTTP_GET) {
         return ESP_OK;
     }
@@ -180,10 +175,6 @@ static esp_err_t echo_handler(httpd_req_t *req)
             setTargetTemperature(target);
             ESP_LOGI(WS_TAG, "Target: %d degrees.", target);
         }
-    }
-
-    if (ret != ESP_OK) {
-        ESP_LOGE(WS_TAG, "httpd_ws_send_frame failed with %d", ret);
     }
 
     free(buf);

@@ -31,7 +31,9 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "const.c"
+#include "esp_event.h"
 
+static esp_event_handler_instance_t s_instance;
 static const char *TAG = "EFOGTECH";
 
 static TaskHandle_t dns_task_handle = NULL;
@@ -548,13 +550,11 @@ static httpd_handle_t start_webserver(void)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
-    config.task_priority = 2;
+    config.task_priority = 7;
     config.server_port = 80;
-    config.backlog_conn = 0;
-    config.max_open_sockets = 12;
+    config.max_open_sockets = 6;
     config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
-    config.keep_alive_enable = false;
     config.send_wait_timeout = 3;
     config.uri_match_fn = httpd_uri_match_wildcard;
 
@@ -593,6 +593,10 @@ static void rgb_set(int r, int g, int b) {
 static void rgb_task(void *pvParameters)
 {
     rgb_clean();
+
+    gpio_set_level(GPIO_NUM_LED_0, 1);
+    vTaskDelay(pdMS_TO_TICKS(300));
+    gpio_set_level(GPIO_NUM_LED_0, 0);
 
     while (1) {
         gpio_set_level(GPIO_NUM_LED_HEAT, heaterTemperatureC > 120);
@@ -715,6 +719,7 @@ static void pd_task(void *pvParameters) {
             setThinking(REASON_TEST, false);
             isPDTesting = false;
 
+            vTaskDelay(pdMS_TO_TICKS(128));
             continue;
         }
 
@@ -792,11 +797,9 @@ static void pd_task(void *pvParameters) {
 static void report_task(void *pvParameters) {
     while (1) {
         if (!webserver) {
-            vTaskDelay(pdMS_TO_TICKS(360));
+            vTaskDelay(pdMS_TO_TICKS(128));
             continue;
         }
-
-        vTaskDelay(pdMS_TO_TICKS(360));
 
         float ntcResistance = 5600 * (1 / (3.3 / ((3.3 * heaterTemperature) / 4096) - 1));
 
@@ -862,8 +865,8 @@ static void report_task(void *pvParameters) {
         pkt.len = strlen(buf);
 
         ws_send_frame_to_all_clients(&pkt, webserver);
-
         makeAdcReads();
+
         vTaskDelay(pdMS_TO_TICKS(128));
     }
 }
@@ -874,24 +877,24 @@ void app_main(void)
     io_conf.intr_type = GPIO_INTR_DISABLE;
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = (
-            (1ULL << GPIO_NUM_HEAT)
-            | (1ULL << GPIO_NUM_PELTIER)
-            | (1ULL << GPIO_NUM_RGB_R)
-            | (1ULL << GPIO_NUM_RGB_G) 
-            | (1ULL << GPIO_NUM_RGB_B)
-            | (1ULL << GPIO_NUM_LED_0) 
-            | (1ULL << GPIO_NUM_LED_1)
-            | (1ULL << GPIO_NUM_LED_HEAT)
-            | (1ULL << GPIO_NUM_FAN)
-        );
+        (1ULL << GPIO_NUM_HEAT)
+        | (1ULL << GPIO_NUM_PELTIER)
+        | (1ULL << GPIO_NUM_RGB_R)
+        | (1ULL << GPIO_NUM_RGB_G)
+        | (1ULL << GPIO_NUM_RGB_B)
+        | (1ULL << GPIO_NUM_LED_0)
+        | (1ULL << GPIO_NUM_LED_1)
+        | (1ULL << GPIO_NUM_LED_HEAT)
+        | (1ULL << GPIO_NUM_FAN)
+    );
     io_conf.pull_down_en = 1;
     io_conf.pull_up_en = 0;
     gpio_config(&io_conf);
 
     io_conf.pin_bit_mask = (
-            (1ULL << GPIO_NUM_PD_CFG2)
-            | (1ULL << GPIO_NUM_PD_CFG3)
-        );
+        (1ULL << GPIO_NUM_PD_CFG2) |
+        (1ULL << GPIO_NUM_PD_CFG3)
+    );
     io_conf.pull_down_en = 0;
     io_conf.pull_up_en = 1;
     gpio_config(&io_conf);
@@ -924,8 +927,8 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
 
-    ESP_LOGI(TAG, "Init emergency");
-    xTaskCreate(&call_911_task, "call_911_task", 2048, NULL, 1, NULL);
+//    ESP_LOGI(TAG, "Init emergency");
+//    xTaskCreate(&call_911_task, "call_911_task", 512, NULL, 1, NULL);
 
     ESP_LOGI(TAG, "Init ADC");
     initAdc();
@@ -934,18 +937,20 @@ void app_main(void)
     initPwm();
 
     ESP_LOGI(TAG, "Init PD");
-    xTaskCreate(&pd_task, "pd_task", 2048, NULL, 4, NULL);
+    xTaskCreate(&pd_task, "pd_task", 3200, NULL, 10, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     rgb_init();
     xTaskCreate(&rgb_task, "rgb_task", 2048, NULL, 12, NULL);
-
-    ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 4096, NULL, 8, NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();
 
     ESP_LOGI(TAG, "Init server");
     webserver = start_webserver();
+
+    ESP_LOGI(TAG, "Init report service");
+    xTaskCreate(&report_task, "report_task", 4096, NULL, 8, NULL);
+
+    ESP_LOGI(TAG, "Initialization successful");
 }

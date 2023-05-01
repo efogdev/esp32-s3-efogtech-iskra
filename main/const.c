@@ -35,7 +35,7 @@ static volatile int rgbR = 0;
 static volatile int rgbG = 0;
 static volatile int rgbB = 0;
 static enum PWM_FN rgbFn = PWM_FN_NONE;
-static volatile char rgbFnData[512] = "1 0:255,0,0";
+static volatile char rgbFnData[256] = "1 0:255,0,0";
 static int64_t rgbFnStart = 0;
 static int rgbFnColors = 0;
 static int rgbFnMsDuration = 0;
@@ -45,7 +45,7 @@ static int colorIndex = 0;
 static void rgb_init() {
     nvs_open("storage", NVS_READWRITE, &nvs);
 
-    nvs_get_str(nvs, "stage_0_data", (char *) &rgbFnData[0], 512);
+    nvs_get_str(nvs, "stage_0_data", (char *) &rgbFnData[0], 256);
     nvs_get_u8(nvs, "stage_0_fn", (uint8_t *) &rgbFn);
     nvs_get_u8(nvs, "stage_0_speed", (uint8_t *) &rgbSpeed);
     nvs_get_u8(nvs, "stage_0_power", (uint8_t *) &rgbPower);
@@ -106,11 +106,11 @@ static void fetch_stages() {
 
     for (uint8_t i = 0; i < 3; i++) {
         int _speed = -1, _fn = -1, _power = -1;
-        char _data[512] = "";
+        char _data[256] = "";
 
         char stageName[64] = "";
         sprintf(stageName, "stage_%d_data", (int) i);
-        nvs_get_str(nvs, stageName, &_data[0], 512);
+        nvs_get_str(nvs, stageName, &_data[0], 256);
 
         sprintf(stageName, "stage_%d_fn", (int) i);
         nvs_get_u8(nvs, stageName, (uint8_t *) &_fn);
@@ -125,7 +125,7 @@ static void fetch_stages() {
             _speed = rgbSpeedDefault;
             _fn = rgbFnDefault;
             _power = rgbPowerDefault;
-            memcpy(&_data[0], &rgbFnDataDefault[0], 64);
+            memcpy(_data, &rgbFnDataDefault[0], 64);
         }
 
         ESP_LOGI(
@@ -137,7 +137,7 @@ static void fetch_stages() {
             _data
         );
 
-        char buf[1024];
+        char buf[512];
         sprintf(buf,
             "{\"type\":\"stage\",\"content\":{\"stage\":%d,\"speed\":%d,\"fn\":%d,\"power\":%d,\"data\":\"%s\"}}",
             (int) i,
@@ -164,7 +164,7 @@ static void set_rgb_stage(enum RGB_STAGE stage) {
 
     char stageName[64] = "";
     sprintf(stageName, "stage_%d_data", (int) stage);
-    nvs_get_str(nvs, stageName, (char *) &rgbFnData[0], 512);
+    nvs_get_str(nvs, stageName, (char *) &rgbFnData[0], 256);
 
     sprintf(stageName, "stage_%d_fn", (int) stage);
     nvs_get_u8(nvs, stageName, (uint8_t *) &rgbFn);
@@ -180,7 +180,7 @@ static void set_rgb_stage(enum RGB_STAGE stage) {
 }
 
 static void parse_rgb_fn_data(char* fnData, int tickValue, int *r, int *g, int *b) {
-    char search[512];
+    char search[256];
     sprintf(search, " %d:", tickValue);
     char* positionData = strstr(fnData, search);
 

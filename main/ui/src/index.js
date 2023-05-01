@@ -22,10 +22,6 @@ class API {
 		try {
 			navigator.serviceWorker.register('/sw.js')
 				.catch(e => console.log(e))
-
-			navigator.serviceWorker.addEventListener('message', (e) => {
-				console.log(JSON.stringify(e));
-			});
 		} catch (e) {
 			console.log(e);
 		}
@@ -47,7 +43,13 @@ class API {
 
 		this.ws = new WebSocket("ws://192.168.4.1/ws");
 
-		this.ws.onclose = this.init.bind(this);
+		this.ws.onclose = () => {
+			clearInterval(interval)
+
+			setTimeout(() => {
+				this.init()
+			}, 300)
+		};
 
 		this.ws.onerror = () => {
 			try { this.ws.close() } catch (e) {}
