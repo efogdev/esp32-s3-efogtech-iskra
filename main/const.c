@@ -9,7 +9,7 @@
 #include "nvs.h"
 
 enum THINKING_REASON {  REASON_DEFAULT = 0, REASON_PD, REASON_FW, REASON_TEST };
-enum PWM_FN { PWM_FN_OFF = 0, PWM_FN_NONE = 1, PWM_FN_RAINBOW, PWM_FN_PULSE, PWM_FN_PULSE_RAINBOW, PWM_FN_FADE_IN, PWM_FN_FADE_OUT, PWM_FN_FADE_TO };
+enum PWM_FN { PWM_FN_OFF = 0, PWM_FN_NONE = 1, PWM_FN_PULSE, PWM_FN_FADE_IN, PWM_FN_FADE_OUT, PWM_FN_FADE };
 enum RGB_STAGE { RGB_STAGE_WAIT = 0, RGB_STAGE_IDLE, RGB_STAGE_HEAT };
 
 static void rgb_set(int, int, int);
@@ -21,7 +21,7 @@ static nvs_handle_t nvs;
 
 // speed 100 = color change takes 200 ms
 // speed 1 = color change takes 20000 ms
-static const int tickMax = 2048;
+static const int tickMax = 512;
 static const int tickMsDuration = 5000;
 static const int rgbSpeedDefault = 50;
 static const int rgbPowerDefault = 75;
@@ -45,7 +45,8 @@ static int colorIndex = 0;
 static void rgb_init() {
     nvs_open("storage", NVS_READWRITE, &nvs);
 
-    nvs_get_str(nvs, "stage_0_data", (char *) &rgbFnData[0], 256);
+    size_t size = 256;
+    nvs_get_str(nvs, "stage_0_data", (char *) &rgbFnData[0], &size);
     nvs_get_u8(nvs, "stage_0_fn", (uint8_t *) &rgbFn);
     nvs_get_u8(nvs, "stage_0_speed", (uint8_t *) &rgbSpeed);
     nvs_get_u8(nvs, "stage_0_power", (uint8_t *) &rgbPower);
@@ -65,6 +66,8 @@ static void rgb_save_stage(uint8_t new_stage, char* fn_data, uint8_t new_fn, uin
 
     sprintf(stageName, "stage_%d_data", (int) new_stage);
     nvs_set_str(nvs, stageName, fn_data);
+
+    nvs_commit(nvs);
 }
 
 static void rgb_fn_restart() {
@@ -74,15 +77,12 @@ static void rgb_fn_restart() {
 
     if (rgbFnColors < 1)
         rgbFnColors = 1;
+
+    rgbFnMsDuration = tickMsDuration * (100 - rgbSpeed + 1) / 100;
 }
 
 static void rgb_clean() {
     rgb_fn_restart();
-
-    rgbFnStart = esp_timer_get_time();
-    rgbSpeed = rgbSpeedDefault;
-
-    rgbFnMsDuration = tickMsDuration * (100 - rgbSpeed) / 100;
 
     rgbR = 0;
     rgbG = 0;
@@ -93,24 +93,34 @@ static void rgb_clean() {
 }
 
 static void set_rgb_fn(enum PWM_FN fn) {
-    if (rgbFn == fn) {
+    if (rgbFn == fn)
         return;
-    }
 
     rgbFn = fn;
     rgb_clean();
+}
+
+static void set_rgb_speed(int speed) {
+    rgbSpeed = speed;
+    rgb_fn_restart();
+}
+
+static void set_rgb_power(int power) {
+    rgbPower = power;
+    rgb_fn_restart();
 }
 
 static void fetch_stages() {
     httpd_handle_t server = getServer();
 
     for (uint8_t i = 0; i < 3; i++) {
-        int _speed = -1, _fn = -1, _power = -1;
-        char _data[256] = "";
+        size_t size = 256;
+        uint8_t _speed = 255, _fn = 255, _power = 255;
+        char _data[size];
 
         char stageName[64] = "";
         sprintf(stageName, "stage_%d_data", (int) i);
-        nvs_get_str(nvs, stageName, &_data[0], 256);
+        nvs_get_str(nvs, stageName, &_data[0], &size);
 
         sprintf(stageName, "stage_%d_fn", (int) i);
         nvs_get_u8(nvs, stageName, (uint8_t *) &_fn);
@@ -121,7 +131,7 @@ static void fetch_stages() {
         sprintf(stageName, "stage_%d_power", (int) i);
         nvs_get_u8(nvs, stageName, (uint8_t *) &_power);
 
-        if (_fn == -1 || _speed == -1 || _power == -1) {
+        if (_fn == 255 || _speed == 255 || _power == 255) {
             _speed = rgbSpeedDefault;
             _fn = rgbFnDefault;
             _power = rgbPowerDefault;
@@ -137,7 +147,7 @@ static void fetch_stages() {
             _data
         );
 
-        char buf[512];
+        char buf[400];
         sprintf(buf,
             "{\"type\":\"stage\",\"content\":{\"stage\":%d,\"speed\":%d,\"fn\":%d,\"power\":%d,\"data\":\"%s\"}}",
             (int) i,
@@ -162,9 +172,11 @@ static void set_rgb_stage(enum RGB_STAGE stage) {
         return;
     }
 
+    size_t size = 256;
+
     char stageName[64] = "";
     sprintf(stageName, "stage_%d_data", (int) stage);
-    nvs_get_str(nvs, stageName, (char *) &rgbFnData[0], 256);
+    nvs_get_str(nvs, stageName, (char *) &rgbFnData[0], &size);
 
     sprintf(stageName, "stage_%d_fn", (int) stage);
     nvs_get_u8(nvs, stageName, (uint8_t *) &rgbFn);
@@ -192,6 +204,10 @@ static void rgb_tick() {
     int msPassed = (int) (((float) (esp_timer_get_time() - rgbFnStart)) / 1000);
 
     int tickMsLen = rgbFnMsDuration / tickMax;
+
+    if (tickMsLen < 1)
+        tickMsLen = 1;
+
     tick = msPassed / tickMsLen;
 
     if (msPassed > rgbFnMsDuration) {
@@ -205,13 +221,9 @@ static void rgb_tick() {
     int r = -1, g = -1, b = -1;
     parse_rgb_fn_data((char *) &rgbFnData[0], colorIndex % rgbFnColors, &r, &g, &b);
 
-    r = r * rgbPower / 100;
-    g = g * rgbPower / 100;
-    b = b * rgbPower / 100;
-
-    rgbR = r;
-    rgbG = g;
-    rgbB = b;
+    r = rgbR = r * rgbPower / 100;
+    g = rgbG = g * rgbPower / 100;
+    b = rgbB = b * rgbPower / 100;
 
     rgb_set(r << 5, g << 5, b << 5);
 }

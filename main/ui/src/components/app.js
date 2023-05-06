@@ -18,8 +18,8 @@ window.store = {
 	isOnline: false,
 	isCooling: false,
 	coolingTemperature: 0,
-	brightness: 60,
-	speed: 60,
+	brightness: 0,
+	speed: 0,
 	isModalOpened: false,
 	isStageEditorOpened: false,
 	targetTemperature: 240,
@@ -32,11 +32,20 @@ window.store = {
 	'12V': false,
 	'15V': false,
 	'20V': false,
-	rgbStageIdle: [],
 	rgbStages: {},
+	rgbStageEditing: null,
+	rgbCurrentFn: 0,
 	log: [
 		{ timestamp: Date.now(), text: 'UI launched' },
 	],
+}
+
+export const rgbFnBinding = {
+	'0': 'Off', // PWM_FN_OFF
+	'1': 'Pulse', // PWM_FN_PULSE
+	'2': 'Fade in', // PWM_FN_FADE_IN
+	'3': 'Fade out', // PWM_FN_FADE_OUT
+	'4': 'Fade', // PWM_FN_FADE
 }
 
 let updateCache = {};
@@ -116,6 +125,9 @@ class StageEditor extends Component {
 
 		this.state = {
 			values: [ '#ff0000', '#0000ff', '#00ff00' ],
+			_brightness: 100,
+			_speed: 40,
+			_stageString: null,
 		}
 
 		this.refs = {}
@@ -125,6 +137,32 @@ class StageEditor extends Component {
 		window.emitter.on('refresh', () => {
 			setTimeout(() => this.forceUpdate())
 		})
+	}
+
+	static hexToRgbString(hexColor) {
+		const shorthandRegex = /^#?([a-f\d])([a-f\d])([a-f\d])$/i
+		const hex = hexColor.replace(shorthandRegex, (m, r, g, b) => r + r + g + g + b + b)
+		const result = /^#?([a-f\d]{2})([a-f\d]{2})([a-f\d]{2})$/i.exec(hex)
+
+		const obj = result ? {
+			r: parseInt(result[1], 16),
+			g: parseInt(result[2], 16),
+			b: parseInt(result[3], 16)
+		} : { r: 0, g: 0, b: 0 }
+
+		return `${obj.r},${obj.g},${obj.b}`
+	}
+
+	componentDidUpdate(previousProps, previousState, previousContext) {
+		const { _brightness, _speed, _stageString, values } = this.state
+		const dataString = `${values.length} ${values.map((hexColor, i) => `${i}:${StageEditor.hexToRgbString(hexColor)}`).join(' ')}`
+		const stageString = `fn=1 speed=${_speed} power=${_brightness} data=${dataString}`
+
+		if (_stageString === stageString)
+			return
+
+		this.setState({ _stageString: stageString })
+		this.props.onChange && this.props.onChange(stageString)
 	}
 
 	setRef(ref, index) {
@@ -147,12 +185,12 @@ class StageEditor extends Component {
 	}
 
 	render() {
-		const { values } = this.state
+		const { values, _brightness, _speed } = this.state
 
 		return (
 			<div className={style.pickers}>
-				<Slider alt name="Brightness" value={0} onChange={null} />
-				<Slider alt name="Speed" value={0} onChange={null} />
+				<Slider alt name="Brightness" value={_brightness} onChange={value => this.setState({ _brightness: value })} />
+				<Slider alt name="Speed" value={_speed} onChange={value => this.setState({ _speed: value })} />
 
 				<div className={style.spacer} />
 
@@ -194,7 +232,7 @@ class StageEditor extends Component {
 				))}
 
 				<div className={style.controls}>
-					<button onClick={() => this.setState({ values: [ ...this.state.values, '#ff0000' ] })}>Add</button>
+					<button onClick={() => this.setState({ values: [ ...this.state.values, '#ffffff' ] })}>Add color</button>
 				</div>
 			</div>
 		);
@@ -205,7 +243,9 @@ class Overlay extends Component {
 	constructor(props) {
 		super(props)
 
-		this.state = {}
+		this.state = {
+			_stageData: null,
+		}
 	}
 
 	componentDidMount() {
@@ -225,14 +265,19 @@ class Overlay extends Component {
 		if (isNaN(text) || text < 160 || text > 260)
 			return alert(`Sorry, but the limit is 160-260°C.`)
 
-		window.emitter.emit('update', { targetTemperature: text, isModalOpened: false, isLoading: true, isHeating: true });
+		window.emitter.emit('update', { targetTemperature: text, isModalOpened: false, isLoading: true, isHeating: true })
 
 		window.emitter.emit('send', `set t=${text}`, true)
 		window.emitter.emit('send', `heat`, true)
 	}
 
+	saveStage(stageIndex) {
+		window.emitter.emit('send', `save_stage stage=${stageIndex} ${this.state._stageData}`, true)
+		window.emitter.emit('update', { isStageEditorOpened: false, rgbStageEditing: null, isLoading: true })
+	}
+
 	render() {
-		const { isModalOpened, isStageEditorOpened } = Object.assign({}, this.state, window.store)
+		const { isModalOpened, isStageEditorOpened, rgbStageEditing } = Object.assign({}, this.state, window.store)
 
 		return (
 			<div className={cn(style.overlay, { 'flex': isModalOpened || isStageEditorOpened })}>
@@ -250,10 +295,10 @@ class Overlay extends Component {
 				<div className={cn(style.modal, style.colors, { [style.hide]: !isStageEditorOpened })}>
 					<div className={style.title}>Stage editor</div>
 
-					<StageEditor />
+					<StageEditor onChange={value => this.setState({ _stageData: value })} />
 
 					<div className={style.controls}>
-						<button onClick={() => this.heat()}  className={style.primary}>Set</button>
+						<button onClick={() => this.saveStage(rgbStageEditing)}  className={style.primary}>Set</button>
 						<button onClick={() => window.emitter.emit('update', { isStageEditorOpened: false })} className={style.red}>Cancel</button>
 					</div>
 				</div>

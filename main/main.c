@@ -32,8 +32,8 @@
 #include "nvs_flash.h"
 #include "const.c"
 #include "esp_event.h"
+#include "PID/PID.h"
 
-static esp_event_handler_instance_t s_instance;
 static const char *TAG = "EFOGTECH";
 
 static TaskHandle_t dns_task_handle = NULL;
@@ -197,7 +197,7 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
 
 static void setConnected() {
     isWaitingForConnection = false;
-//    set_rgb_stage(RGB_STAGE_IDLE);
+    set_rgb_stage(RGB_STAGE_IDLE);
 }
 
 static void setPD(int volts) {
@@ -550,9 +550,9 @@ static httpd_handle_t start_webserver(void)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
-    config.task_priority = 7;
+    config.task_priority = 4;
     config.server_port = 80;
-    config.max_open_sockets = 8;
+    config.max_open_sockets = 12;
     config.max_uri_handlers = 12;
     config.lru_purge_enable = true;
     config.send_wait_timeout = 3;
@@ -601,9 +601,9 @@ static void rgb_task(void *pvParameters)
     while (1) {
         gpio_set_level(GPIO_NUM_LED_HEAT, heaterTemperatureC > 120);
 
-        if (usbVrefVoltage < voltageThreshold) {
+        if (usbVrefVoltage < voltageThreshold || isPDTesting) {
             rgb_set(0, 0, 0);
-            vTaskDelay(pdMS_TO_TICKS(128));
+            vTaskDelay(pdMS_TO_TICKS(320));
             continue;
         }
 
@@ -614,22 +614,23 @@ static void rgb_task(void *pvParameters)
 
 static void call_911_task(void *pvParameters) {
     while (1) {
-//        if (heaterTemperatureC > targetTemperature + 20) {
-//            isHeating = 0;
-//            targetTemperature = 0;
-//            heaterPwm = 0;
-//            stopHeating();
-//        }
-//
-//        if (boardTemperature > 75) {
-//            esp_system_abort("OVERHEAT");
-//        }
-//
-//        if (heaterTemperatureC > 400) {
-//            esp_restart();
-//        }
-//
-        vTaskDelay(pdMS_TO_TICKS(32));
+        if (heaterTemperatureC > 200 && heaterTemperatureC > targetTemperature + 20) {
+            isHeating = 0;
+            targetTemperature = 0;
+            heaterPwm = 0;
+            stopHeating();
+        }
+
+        if (boardTemperature > 70) {
+            esp_system_abort("OVERHEAT");
+        }
+
+        if (heaterTemperatureC > 320) {
+            stopHeating();
+            esp_restart();
+        }
+
+        vTaskDelay(pdMS_TO_TICKS(128));
     }
 }
 
@@ -794,13 +795,18 @@ static void pd_task(void *pvParameters) {
     }
 }
 
-static void report_task(void *pvParameters) {
-    while (1) {
-        if (!webserver) {
-            vTaskDelay(pdMS_TO_TICKS(128));
-            continue;
-        }
+static float kp = 2.12, ki = 0.74, kd = 1.6;
+static float pid_input = 0, pid_output = PWM_MAX - 1, pid_setpoint = 0;
 
+static struct pid_controller pid_ctrl_data;
+static pid_ctrl_t pid;
+
+static void heater_task(void *pvParameters) {
+    pid = pid_create(&pid_ctrl_data, &pid_input, &pid_output, &pid_setpoint, kp, ki, kd);
+    pid_limits(pid, 0, PWM_MAX - 1);
+    pid_auto(pid);
+
+    while (1) {
         float ntcResistance = 5600 * (1 / (3.3 / ((3.3 * heaterTemperature) / 4096) - 1));
 
         float temperature;
@@ -815,20 +821,17 @@ static void report_task(void *pvParameters) {
 
         if (!isPDTesting) {
             if (isHeating && (usbVrefVoltage > voltageThreshold)) {
-                if (temperature < targetTemperature - 20) {
-                    heaterPwm = PWM_MAX;
-                    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
-                    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-                } else if (temperature < targetTemperature - 10) {
-                    heaterPwm = PWM_MAX * 0.9;
-                    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX);
-                    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
-                } else if (temperature >= targetTemperature) {
-                    heaterPwm = PWM_MAX * 0.5;
+                pid_setpoint = targetTemperature;
 
-                    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, PWM_MAX * 0.5);
-                    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+                if (pid_need_compute(pid)) {
+                    pid_input = temperature;
+                    pid_compute(pid);
+
+                    heaterPwm = pid_output;
                 }
+
+                ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, heaterPwm);
+                ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
             } else {
                 ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
                 ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
@@ -837,11 +840,22 @@ static void report_task(void *pvParameters) {
             }
         }
 
+        vTaskDelay(pdMS_TO_TICKS(256));
+    }
+}
+
+static void report_task(void *pvParameters) {
+    while (1) {
+        if (!webserver) {
+            vTaskDelay(pdMS_TO_TICKS(128));
+            continue;
+        }
+
         char buf[640];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"isCooling\":%s,\"boardTemperature\":\"%d\",\"heaterPower\":\"%d\",\"coolerPower\":\"%d\",\"fanPower\":\"%d\",\"freeRam\":\"%d\",\"voltageRaw\":\"%d\",\"isServerThinking\":%s,\"12V\":%s,\"15V\":%s,\"20V\":%s}}",
+            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"isCooling\":%s,\"boardTemperature\":\"%d\",\"heaterPower\":\"%d\",\"coolerPower\":\"%d\",\"fanPower\":\"%d\",\"freeRam\":\"%d\",\"voltageRaw\":\"%d\",\"isServerThinking\":%s,\"12V\":%s,\"15V\":%s,\"20V\":%s,\"speed\":%d,\"brightness\":%d,\"rgbCurrentFn\":%d}}",
             isHeating ? "true" : "false", // isHeating
-            (int) temperature, // temperature, C
+            (int) heaterTemperatureC, // temperature, C
             (int) waterTemperature, // radiator temp ADC raw data
             voltageString, // voltage
             (!voltageWarning && (usbVrefVoltage > voltageThreshold)) ? "true" : "false", // isVoltageOk
@@ -855,7 +869,10 @@ static void report_task(void *pvParameters) {
             isThinking ? "true" : "false",
             pdCapable12 ? "true" : "false",
             pdCapable15 ? "true" : "false",
-            pdCapable20 ? "true" : "false"
+            pdCapable20 ? "true" : "false",
+            rgbSpeed,
+            rgbPower,
+            rgbFn
         );
 
         httpd_ws_frame_t pkt;
@@ -867,7 +884,7 @@ static void report_task(void *pvParameters) {
         ws_send_frame_to_all_clients(&pkt, webserver);
         makeAdcReads();
 
-        vTaskDelay(pdMS_TO_TICKS(128));
+        vTaskDelay(pdMS_TO_TICKS(160));
     }
 }
 
@@ -924,11 +941,11 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
-    ESP_ERROR_CHECK(esp_netif_init());
     ESP_ERROR_CHECK(esp_event_loop_create_default());
+    ESP_ERROR_CHECK(esp_netif_init());
 
-//    ESP_LOGI(TAG, "Init emergency");
-//    xTaskCreate(&call_911_task, "call_911_task", 512, NULL, 1, NULL);
+    ESP_LOGI(TAG, "Init emergency");
+    xTaskCreate(&call_911_task, "call_911_task", 1024, NULL, 3, NULL);
 
     ESP_LOGI(TAG, "Init ADC");
     initAdc();
@@ -937,11 +954,11 @@ void app_main(void)
     initPwm();
 
     ESP_LOGI(TAG, "Init PD");
-    xTaskCreate(&pd_task, "pd_task", 4400, NULL, 10, NULL);
+    xTaskCreate(&pd_task, "pd_task", 4400, NULL, 11, NULL);
 
     ESP_LOGI(TAG, "Init RGB");
     rgb_init();
-    xTaskCreate(&rgb_task, "rgb_task", 3200, NULL, 12, NULL);
+    xTaskCreate(&rgb_task, "rgb_task", 5600, NULL, 12, NULL);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();
@@ -950,7 +967,10 @@ void app_main(void)
     webserver = start_webserver();
 
     ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 5600, NULL, 8, NULL);
+    xTaskCreate(&report_task, "report_task", 5600, NULL, 6, NULL);
+
+    ESP_LOGI(TAG, "Init heater service");
+    xTaskCreate(&heater_task, "heater_task", 5600, NULL, 9, NULL);
 
     ESP_LOGI(TAG, "Initialization successful");
 }

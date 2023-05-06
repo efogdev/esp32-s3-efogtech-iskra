@@ -1,6 +1,7 @@
 #include <esp_log.h>
 #include <nvs_flash.h>
 #include <esp_http_server.h>
+#include <const.c>
 
 static httpd_handle_t server = NULL;
 static const char *WS_TAG = "WS";
@@ -16,6 +17,8 @@ static void pdTest();
 static void fetch_stages();
 static void setTargetTemperature(int);
 static void rgb_save_stage(uint8_t, char*, uint8_t, uint8_t, uint8_t);
+static void set_rgb_speed(int);
+static void set_rgb_power(int);
 
 static void ws_update_temperature(int new_temperature) {
     _temperature = new_temperature;
@@ -43,8 +46,6 @@ static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *ws_pkt, httpd_ha
     for (int i = 0; i < fds; i++) {
         int client_info = httpd_ws_get_fd_info(server_handle, client_fds[i]);
         if (client_info == HTTPD_WS_CLIENT_WEBSOCKET) {
-            ESP_LOGI(WS_TAG, "Sending to FD %d", client_fds[i]);
-
             esp_err_t err = httpd_ws_send_frame_async(server_handle, client_fds[i], ws_pkt);
 
             if (err == ESP_FAIL) {
@@ -162,9 +163,13 @@ static esp_err_t echo_handler(httpd_req_t *req)
             char new_data[256];
 
             char* stageData = strstr((const char *) ws_pkt.payload, "stage=");
-            sscanf(stageData, "stage=%d fn=%d speed=%d power=%d data=%s", &new_stage, &new_fn, &new_speed, &new_power, &new_data[0]);
+            sscanf(stageData, "stage=%d fn=%d speed=%d power=%d", &new_stage, &new_fn, &new_speed, &new_power);
 
-            rgb_save_stage(new_stage, new_data, new_fn, new_speed, new_power);
+            char* fnData = strstr((const char *) ws_pkt.payload, "data=");
+            memcpy(&new_data[0], &fnData[0] + 5, &ws_pkt.payload[0] + ws_pkt.len - (unsigned char *) &fnData[0] - 5);
+
+            rgb_save_stage(new_stage, new_data, (uint8_t) new_fn, (uint8_t) new_speed, (uint8_t) new_power);
+            fetch_stages();
         }
 
         if (strncmp((const char *) ws_pkt.payload, "set", 3) == 0) {
@@ -175,6 +180,30 @@ static esp_err_t echo_handler(httpd_req_t *req)
 
             setTargetTemperature(target);
             ESP_LOGI(WS_TAG, "Target: %d degrees.", target);
+        }
+
+        if (strncmp((const char *) ws_pkt.payload, "rgb_speed", 9) == 0) {
+            int target = -1;
+            sscanf((const char *) ws_pkt.payload, "rgb_speed %d", &target);
+
+            if (target > -1)
+                set_rgb_speed(target);
+        }
+
+        if (strncmp((const char *) ws_pkt.payload, "rgb_power", 9) == 0) {
+            int target = -1;
+            sscanf((const char *) ws_pkt.payload, "rgb_power %d", &target);
+
+            if (target > -1)
+                set_rgb_power(target);
+        }
+
+        if (strncmp((const char *) ws_pkt.payload, "rgb_fn", 6) == 0) {
+            int target = -1;
+            sscanf((const char *) ws_pkt.payload, "rgb_fn %d", &target);
+
+            if (target > -1)
+                set_rgb_fn((enum PWM_FN) target);
         }
     }
 
