@@ -13,9 +13,14 @@ class API {
 		window.addEventListener('message', e => {
 			if (e.data === 'ota_done') {
 				window.emitter.emit('send', 'reboot')
+				alert('Done! Please reconnect manually.')
 				window.close()
 			}
 		});
+	}
+
+	close() {
+		this.ws.close()
 	}
 
 	initSW() {
@@ -41,14 +46,20 @@ class API {
 	init() {
 		clearInterval(interval)
 
-		this.ws = new WebSocket("ws://192.168.4.1/ws");
+		try {
+			this.ws = new WebSocket("ws://192.168.4.1/ws");
+		} catch (e) {
+			setTimeout(() => {
+				this.init()
+			}, 250)
+		}
 
 		this.ws.onclose = () => {
 			clearInterval(interval)
 
 			setTimeout(() => {
 				this.init()
-			}, 300)
+			}, 250)
 		};
 
 		this.ws.onerror = () => {
@@ -90,25 +101,36 @@ class API {
 				}
 
 				if (type === 'stage') {
-					window.store.log.push({ timestamp: Date.now(), text: JSON.stringify(content) });
+					Object.assign(window.store, {
+						rgbStages: {
+							...window.store.rgbStages,
+							[`stage_${content.stage}`]: {
+								...content,
+							},
+						}
+					})
+
+					window.emitter.emit('refresh', null, true)
 				}
 
 				if (type === 'log') {
 					window.store.log.push({ timestamp: Date.now(), text: content });
 					window.emitter.emit('refresh', null, true)
 				}
-			} catch (e) { alert(e) }
+			} catch (e) {}
 		};
 
 		const updateTemperature = () => {
-			const ifOffline = (Date.now() - window.store.update) > OFFLINE_THRESHOLD_MS;
+			try {
+				const ifOffline = (Date.now() - window.store.update) > OFFLINE_THRESHOLD_MS;
 
-			Object.assign(window.store, {
-				update: Date.now(),
-			});
+				Object.assign(window.store, {
+					update: Date.now(),
+				});
 
-			window.emitter.emit('update', { update: Date.now(), isOnline: !ifOffline, isLoading: ifOffline || window.store.isLoading })
-			window.emitter.emit('refresh', null, true)
+				window.emitter.emit('update', { update: Date.now(), isOnline: !ifOffline, isLoading: ifOffline || window.store.isLoading })
+				window.emitter.emit('refresh', null, true)
+			} catch (e) {}
 		};
 
 		interval = setInterval(() => {
@@ -128,7 +150,10 @@ if (module.hot) {
 	module.hot.accept('./components/app', () => requestAnimationFrame(init) );
 }
 
-if (location.href !== 'http://192.168.4.1/' && !location.href.includes('localhost'))
-	location.href = 'http://192.168.4.1/'
-
-init();
+if (location.href !== 'http://192.168.4.1/' && !location.href.includes('localhost')) {
+	setTimeout(() => {
+		location.href = 'http://192.168.4.1/'
+	})
+} else {
+	init();
+}

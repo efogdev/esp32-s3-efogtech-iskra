@@ -167,11 +167,7 @@ static void fetch_stages() {
     }
 }
 
-static void set_rgb_stage(enum RGB_STAGE stage) {
-    if (rgbStage == stage) {
-        return;
-    }
-
+static void set_rgb_stage(enum RGB_STAGE stage) { 
     size_t size = 256;
 
     char stageName[64] = "";
@@ -189,6 +185,10 @@ static void set_rgb_stage(enum RGB_STAGE stage) {
 
     rgbStage = stage;
     set_rgb_fn(rgbFn);
+}
+
+static void reset_rgb_stage() {
+    set_rgb_stage(rgbStage);
 }
 
 static void parse_rgb_fn_data(char* fnData, int tickValue, int *r, int *g, int *b) {

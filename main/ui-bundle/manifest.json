@@ -2,13 +2,34 @@
   "name": "Iskra",
   "short_name": "Iskra",
   "start_url": "/",
-  "display": "fullscreen",
-  "background_color": "#000",
+  "display": "standalone",
+  "description": "Control your device remotely",
+  "background_color": "#673ab8",
   "theme_color": "#673ab8",
   "protocol_handlers": [
     {
-      "protocol": "efogtech",
+      "protocol": "web+efogtech",
       "url": "/"
+    }
+  ],
+  "icons": [
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "196x196",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "32x32",
+      "purpose": "any"
+    },
+    {
+      "src": "/icon.png",
+      "type": "image/png",
+      "sizes": "512x512",
+      "purpose": "any"
     }
   ]
 }

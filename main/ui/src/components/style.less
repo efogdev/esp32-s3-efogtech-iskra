@@ -5,7 +5,7 @@
 	left: 0;
 	width: 100vw;
 	height: 100vh;
-	background: #673ab7;
+	background: #856eb7;
 	color: #fafafa;
 	font-size: 24px;
 	display: none;
@@ -62,7 +62,6 @@
 		height: 100vh;
 		padding: 20px 20px;
 		min-height: 80vh;
-		display: flex;
 		flex-direction: column;
 
 		.spacer {
@@ -70,7 +69,7 @@
 		}
 
 		.pickers {
-			flex: 1 1 auto;
+			max-height: calc(100vh - 180px);
 			display: flex;
 			flex-direction: column;
 			width: 100vw;
@@ -138,6 +137,19 @@
 
 		.controls {
 			margin-top: 16px;
+		}
+
+		& > .controls {
+			padding-top: 24px;
+		}
+
+		div[role="color"] {
+			color: white;
+		}
+
+		select[role="color"] {
+			background: white;
+			color: #444;
 		}
 	}
 }

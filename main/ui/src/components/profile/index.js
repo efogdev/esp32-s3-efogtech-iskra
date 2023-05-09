@@ -48,6 +48,11 @@ export default class Settings extends Component {
 			}, 1000)
 		}
 
+		const toggleAuth = () => {
+			window.emitter.emit('send', `auth`)
+			window.emitter.emit('update', { isLoading: true })
+		}
+
 		return (
 			<div className={style.firmware}>
 				<div className={style.card}>
@@ -63,16 +68,20 @@ export default class Settings extends Component {
 					<br />
 					<br />
 
-					<div className={style.inline}><button onClick={() => reboot()}>Reboot</button></div>
-					<div className={style.inline}><input id="btn" type="button" value="Firmware update" onClick={() => this.setState({ showOta: !data.showOta })} /></div>
-
-					<br />
-
 					<div className={cn(style.inline, { [style.capable]: data['12V'], [style.red]: !data['12V'] })}><button disabled={!data['12V']} onClick={() => pd(12)}>20W</button></div>
 					<div className={cn(style.inline, { [style.capable]: data['15V'], [style.red]: !data['15V']  })}><button disabled={!data['15V']} onClick={() => pd(15)}>30W</button></div>
 					<div className={cn(style.inline, { [style.capable]: data['20V'], [style.red]: !data['20V']  })}><button disabled={!data['20V']} onClick={() => pd(20)}>65W</button></div>
 
 					<br />
+					<br />
+
+					<div className={style.inline}><button onClick={() => location.reload()}>Refresh</button></div>
+					<div className={style.inline}><button onClick={() => reboot()}>Reboot</button></div>
+
+					<br />
+
+					<div className={style.inline}><input id="btn" type="button" value="Firmware" onClick={() => this.setState({ showOta: !data.showOta })} /></div>
+					<div className={style.inline}><button onClick={() => toggleAuth()}>DNS: {data.authEn ? 'yes' : 'no'}</button></div>
 
 					<iframe sandbox="allow-same-origin allow-scripts allow-popups allow-forms" className={cn(style.frame, { [style.visible]: data.showOta })} src="/ota" />
 				</div>

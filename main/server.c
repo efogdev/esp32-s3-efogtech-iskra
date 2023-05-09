@@ -233,12 +233,16 @@ static void dns_server_task(void *pvParameters)
                     }
                 }
             }
+
+            vTaskDelay(pdMS_TO_TICKS(32));
         }
 
         if (sock != -1) {
             shutdown(sock, 0);
             close(sock);
         }
+
+        vTaskDelay(pdMS_TO_TICKS(32));
     }
 
     vTaskDelete(NULL);
@@ -246,5 +250,5 @@ static void dns_server_task(void *pvParameters)
 
 void start_dns_server(TaskHandle_t dns_task_handle)
 {
-    xTaskCreate(&dns_server_task, "dns_server", 4400, NULL, 4, &dns_task_handle);
+    xTaskCreatePinnedToCore(&dns_server_task, "dns_server", 4096, NULL, 2, &dns_task_handle, 0);
 }

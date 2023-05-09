@@ -2,7 +2,7 @@ import { h, Component } from 'preact';
 import { Router } from 'preact-router';
 
 import Header from './header';
-import Home, { Slider } from './home';
+import Home, {AnimationPicker, Slider} from './home';
 import Profile from './profile';
 import style from './style.less';
 import cn from 'classnames';
@@ -35,6 +35,7 @@ window.store = {
 	rgbStages: {},
 	rgbStageEditing: null,
 	rgbCurrentFn: 0,
+	authEn: false,
 	log: [
 		{ timestamp: Date.now(), text: 'UI launched' },
 	],
@@ -124,10 +125,12 @@ class StageEditor extends Component {
 		super(props)
 
 		this.state = {
-			values: [ '#ff0000', '#0000ff', '#00ff00' ],
+			values: [ ],
 			_brightness: 100,
-			_speed: 40,
+			_speed: 100,
+			_fn: -1,
 			_stageString: null,
+			_stageIndex: -1,
 		}
 
 		this.refs = {}
@@ -154,15 +157,56 @@ class StageEditor extends Component {
 	}
 
 	componentDidUpdate(previousProps, previousState, previousContext) {
-		const { _brightness, _speed, _stageString, values } = this.state
-		const dataString = `${values.length} ${values.map((hexColor, i) => `${i}:${StageEditor.hexToRgbString(hexColor)}`).join(' ')}`
-		const stageString = `fn=1 speed=${_speed} power=${_brightness} data=${dataString}`
+		const { rgbStageEditing, rgbStages } = Object.assign({}, this.state, window.store)
+		const { _brightness, _speed, _stageString, values, _fn } = this.state
+		const stageString = StageEditor.makeStageString(_brightness, _speed, values, _fn)
+		const storeStage = rgbStages[`stage_${rgbStageEditing}`];
+
+		if (storeStage) {
+			const _values = StageEditor.dataToValues(storeStage.data)
+			const storeStageString = StageEditor.makeStageString(storeStage.power, storeStage.speed, _values, parseInt(storeStage.fn))
+
+			if (storeStageString !== stageString && this.state._stageIndex !== rgbStageEditing) {
+				this.setState({
+					_stageString: storeStageString,
+					_brightness: parseInt(storeStage.power),
+					_speed: parseInt(storeStage.speed),
+					_fn: parseInt(storeStage.fn),
+					_stageIndex: rgbStageEditing,
+					values: _values,
+				})
+			}
+		}
 
 		if (_stageString === stageString)
 			return
 
 		this.setState({ _stageString: stageString })
 		this.props.onChange && this.props.onChange(stageString)
+	}
+
+	static dataToValues(dataString) {
+		try {
+			const parts = dataString.split(' ').filter(it => it.includes(':'))
+			const values = []
+
+			for (const part of parts) {
+				const [, rgbString] = part.split(':')
+				const [ r, g, b ] = rgbString.split(',').map(it => parseInt(it))
+
+				values.push(`#${((1 << 24) + (r << 16) + (g << 8) + b).toString(16).substring(1)}`)
+			}
+
+			return values
+		} catch (e) {
+			return []
+		}
+	}
+
+	static makeStageString(brightness, speed, values, fn) {
+		const dataString = `${values.length} ${values.map((hexColor, i) => `${i}:${StageEditor.hexToRgbString(hexColor)}`).join(' ')}`
+
+		return `fn=${parseInt(fn)} speed=${speed} power=${brightness} data=${dataString}`
 	}
 
 	setRef(ref, index) {
@@ -185,12 +229,14 @@ class StageEditor extends Component {
 	}
 
 	render() {
-		const { values, _brightness, _speed } = this.state
+		const { values, _brightness, _speed, _fn } = this.state
 
 		return (
 			<div className={style.pickers}>
 				<Slider alt name="Brightness" value={_brightness} onChange={value => this.setState({ _brightness: value })} />
 				<Slider alt name="Speed" value={_speed} onChange={value => this.setState({ _speed: value })} />
+
+				<AnimationPicker value={_fn} onChange={value => this.setState({ _fn: value })} />
 
 				<div className={style.spacer} />
 
@@ -207,6 +253,9 @@ class StageEditor extends Component {
 							type="color"
 							value={it}
 							onChange={(e) => {
+								if (values.length > 12)
+									return alert('Sorry, currently the limit is 12 colors.')
+
 								const newValues = this.state.values.slice()
 								newValues[index] = e.target.value
 
@@ -232,7 +281,7 @@ class StageEditor extends Component {
 				))}
 
 				<div className={style.controls}>
-					<button onClick={() => this.setState({ values: [ ...this.state.values, '#ffffff' ] })}>Add color</button>
+					<button onClick={() => this.setState({ values: [ ...this.state.values, '#673ab7' ] })}>Add color</button>
 				</div>
 			</div>
 		);
@@ -262,8 +311,8 @@ class Overlay extends Component {
 	heat() {
 		const text = parseInt(document.querySelector('#modal-input').value)
 
-		if (isNaN(text) || text < 160 || text > 260)
-			return alert(`Sorry, but the limit is 160-260°C.`)
+		if (isNaN(text) || text < 160 || text > 240)
+			return alert(`Sorry, but the limit is 160-240°C.`)
 
 		window.emitter.emit('update', { targetTemperature: text, isModalOpened: false, isLoading: true, isHeating: true })
 
@@ -284,7 +333,7 @@ class Overlay extends Component {
 				<div className={cn(style.modal, { [style.hide]: !isModalOpened })}>
 					<div className={style.title}>Target temperature:</div>
 					<div>
-						<input placeholder="160-260°C" type="number" id="modal-input" />
+						<input placeholder="160-240°C" type="number" id="modal-input" />
 					</div>
 					<div>
 						<button onClick={() => this.heat()}  className={style.primary}>Heat</button>

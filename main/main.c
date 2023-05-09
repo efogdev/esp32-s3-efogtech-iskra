@@ -36,6 +36,7 @@
 
 static const char *TAG = "EFOGTECH";
 
+static nvs_handle_t nvs;
 static TaskHandle_t dns_task_handle = NULL;
 static volatile int requestUsbPdVolts = 0;
 static volatile int usbVrefVoltage = -1;
@@ -46,17 +47,17 @@ static volatile int cc1 = -1, cc2 = -1;
 static volatile int boardTemperature = -1;
 static volatile int heaterTemperature = -1;
 static volatile int heaterTemperatureC = -1;
+static volatile int heaterTemperatureConverted = -1;
 static volatile int heaterPwm = 0;
 static volatile int waterTemperature = -1;
 static volatile int radiatorTemperature = -1;
 static volatile int targetTemperature = 220;
-static volatile int peltierValue = 0;
 static volatile int fanValue = 0;
 static uint32_t freeRam = 0;
+static volatile bool isAuthEnabled = true;
 static volatile bool isThinking = false;
 static volatile bool isPDTesting = false;
 static volatile bool isHeating = false;
-static volatile bool isCooling = false;
 static volatile bool pdCapable12 = false, pdCapable15 = false, pdCapable20 = false;
 static volatile bool isWaitingForConnection = true;
 static const int voltageThreshold = 1100;
@@ -83,7 +84,6 @@ static volatile enum THINKING_REASON thinkingReason = REASON_DEFAULT;
 #define REPORT_URL "http://efog.tech/api/batmon/update"
 
 #define PWM_CHANNEL_HEAT LEDC_CHANNEL_0
-#define PWM_CHANNEL_PELTIER LEDC_CHANNEL_1
 #define PWM_CHANNEL_FAN LEDC_CHANNEL_2
 
 #define RGB_FREQ 5000
@@ -112,9 +112,6 @@ static volatile enum THINKING_REASON thinkingReason = REASON_DEFAULT;
 
 #define GPIO_HEAT 14
 #define GPIO_NUM_HEAT GPIO_NUM_14
-
-#define GPIO_PELTIER 21
-#define GPIO_NUM_PELTIER GPIO_NUM_21
 
 #define GPIO_TR 16
 #define GPIO_NUM_TR GPIO_NUM_16
@@ -190,9 +187,22 @@ esp_err_t _http_event_handler(esp_http_client_event_t *evt)
         case HTTP_EVENT_ON_DATA:
         case HTTP_EVENT_DISCONNECTED:
         case HTTP_EVENT_REDIRECT:
-            break;    
+            break;
     }
     return ESP_OK;
+}
+
+static void setAuth(bool auth) {
+    isAuthEnabled = auth;
+    nvs_set_u8(nvs, "dns_auth", auth ? 1 : 0);
+}
+
+static bool getAuth() {
+    return isAuthEnabled;
+}
+
+static void toggleAuth() {
+    setAuth(!getAuth());
 }
 
 static void setConnected() {
@@ -218,14 +228,12 @@ static void startHeating() {
 }
 
 static void disable_all() {
-    isCooling = false;
     isHeating = false;
     fanValue = 0;
 
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
     ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 
-    gpio_set_level(GPIO_NUM_PELTIER, 0);
     gpio_set_level(GPIO_NUM_HEAT, 0);
     gpio_set_level(GPIO_NUM_FAN, 0);
 }
@@ -247,39 +255,10 @@ static void toggleHeating() {
     }
 }
 
-static void startCooling() {
-    fanValue = PWM_MAX;
-    isCooling = true;
-}
-
-static void stopCooling() {
-    isCooling = false;
-
-    fanValue = 0;
-}
-
-static void toggleCooling() {
-    isCooling = !isCooling;
-
-    if (isCooling) {
-        startCooling();
-    } else {
-        stopCooling();
-    }
-}
-
-static void setPeltierValue(int value) {
-    peltierValue = value;
-}
-
-static void setFanValue(int value) {
-    fanValue = value;
-}
-
 static void initPwm() {
     ledc_timer_config_t ledc_timer = {
         .speed_mode       = PWM_MODE,
-        .timer_num        = LEDC_TIMER_0, 
+        .timer_num        = LEDC_TIMER_0,
         .duty_resolution  = PWM_RESOLUTION,
         .freq_hz          = PWM_FREQ,
         .clk_cfg          = LEDC_AUTO_CLK
@@ -287,11 +266,11 @@ static void initPwm() {
     ESP_ERROR_CHECK(ledc_timer_config(&ledc_timer));
 
     ledc_timer_config_t ledc_timer2 = {
-        .duty_resolution = RGB_RESOLUTION, 
-        .freq_hz = RGB_FREQ,               
-        .speed_mode = PWM_MODE,           
-        .timer_num = LEDC_TIMER_1,        
-        .clk_cfg = LEDC_AUTO_CLK,         
+        .duty_resolution = RGB_RESOLUTION,
+        .freq_hz = RGB_FREQ,
+        .speed_mode = PWM_MODE,
+        .timer_num = LEDC_TIMER_1,
+        .clk_cfg = LEDC_AUTO_CLK,
     };
     ledc_timer_config(&ledc_timer2);
 
@@ -301,7 +280,7 @@ static void initPwm() {
         .timer_sel      = LEDC_TIMER_0,
         .intr_type      = LEDC_INTR_DISABLE,
         .gpio_num       = GPIO_HEAT,
-        .duty           = 0, 
+        .duty           = 0,
         .hpoint         = 0
     };
     ESP_ERROR_CHECK(ledc_channel_config(&ledc_heat));
@@ -388,31 +367,29 @@ static volatile bool voltageWarning = false;
 static volatile int vbuffer_index = 0;
 #define vbuffer_size 16
 static volatile int voltageBuffer[vbuffer_size];
+
 static void makeAdcReads() {
-    int sum_1 = 0, sum_2 = 0, sum_3 = 0, sum_4 = 0;
-    int8_t multisample = 32;
+    int sum_1 = 0, sum_2 = 0;
+    uint8_t multisample = 127;
 
     for (int8_t i = 0; i < multisample; i++) {
-        int temp_1 = 0, temp_2 = 0, temp_3 = 0;
-        float temp_4 = 0;
+        int temp_1 = 0, temp_2 = 0;
 
         adc_oneshot_read(adc1_handle, USB_VREF_ADC_CHANNEL, &temp_1);
         adc_oneshot_read(adc2_handle, TEMP_ADC_CHANNEL, &temp_2);
-        adc_oneshot_read(adc1_handle, RADIATOR_TEMP_ADC_CHANNEL, &temp_3);
-        temperature_sensor_get_celsius(temp_sensor, &temp_4);
 
         sum_1 += temp_1;
         sum_2 += temp_2;
-        sum_3 += temp_3;
-        sum_4 += (signed int) temp_4;
     }
 
     freeRam = esp_get_free_heap_size();
 
     usbVrefVoltage = sum_1 / multisample;
-    heaterTemperature = (sum_2 / multisample) * 0.95;
-    waterTemperature = sum_3 / multisample;
-    boardTemperature = sum_4 / multisample;
+    heaterTemperature = sum_2 / multisample;
+
+    float btemp;
+    temperature_sensor_get_celsius(temp_sensor, &btemp);
+    boardTemperature = (signed int) btemp;
 
     int usbCalibrated = 0;
     adc_cali_raw_to_voltage(adc_cali_handle, usbVrefVoltage, &usbCalibrated);
@@ -450,6 +427,9 @@ extern const char bundle_end[] asm("_binary_bundle_js_end");
 
 extern const char sw_start[] asm("_binary_sw_js_start");
 extern const char sw_end[] asm("_binary_sw_js_end");
+
+extern const char icon_start[] asm("_binary_icon_png_start");
+extern const char icon_end[] asm("_binary_icon_png_end");
 
 static esp_err_t root_get_handler(httpd_req_t *req)
 {
@@ -501,6 +481,16 @@ static esp_err_t ota_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
+static esp_err_t icon_get_handler(httpd_req_t *req)
+{
+    const uint32_t icon_len = icon_end - icon_start;
+
+    httpd_resp_set_type(req, "text/html");
+    httpd_resp_send(req, icon_start, icon_len);
+
+    return ESP_OK;
+}
+
 static const httpd_uri_t root = {
     .uri = "/",
     .method = HTTP_GET,
@@ -536,6 +526,13 @@ static const httpd_uri_t sw = {
      .user_ctx = NULL
 };
 
+static const httpd_uri_t icon = {
+     .uri = "/icon.png",
+     .method = HTTP_GET,
+     .handler = icon_get_handler,
+     .user_ctx = NULL
+};
+
 esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
 {
     httpd_resp_set_status(req, "302 Temporary Redirect");
@@ -550,7 +547,7 @@ static httpd_handle_t start_webserver(void)
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
 
-    config.task_priority = 4;
+    config.task_priority = 2;
     config.server_port = 80;
     config.max_open_sockets = 12;
     config.max_uri_handlers = 12;
@@ -564,12 +561,15 @@ static httpd_handle_t start_webserver(void)
         httpd_register_uri_handler(server, &manifest);
         httpd_register_uri_handler(server, &bundle);
         httpd_register_uri_handler(server, &sw);
+        httpd_register_uri_handler(server, &icon);
         httpd_register_uri_handler(server, &root);
 
         initWebsocket(server);
         start_file_server(server);
 
-        start_dns_server(dns_task_handle);
+        if (isAuthEnabled) {
+            start_dns_server(dns_task_handle);
+        }
 
         httpd_register_err_handler(server, HTTPD_404_NOT_FOUND, http_404_error_handler);
     } else {
@@ -608,13 +608,13 @@ static void rgb_task(void *pvParameters)
         }
 
         rgb_tick();
-        vTaskDelay(pdMS_TO_TICKS(16));
+        vTaskDelay(pdMS_TO_TICKS(24));
     }
 }
 
 static void call_911_task(void *pvParameters) {
     while (1) {
-        if (heaterTemperatureC > 200 && heaterTemperatureC > targetTemperature + 20) {
+        if (heaterTemperatureC > 300 && heaterTemperatureC > targetTemperature + 20) {
             isHeating = 0;
             targetTemperature = 0;
             heaterPwm = 0;
@@ -625,7 +625,7 @@ static void call_911_task(void *pvParameters) {
             esp_system_abort("OVERHEAT");
         }
 
-        if (heaterTemperatureC > 320) {
+        if (heaterTemperatureConverted > 360) {
             stopHeating();
             esp_restart();
         }
@@ -639,9 +639,6 @@ static void pd_task(void *pvParameters) {
 
     gpio_set_level(GPIO_NUM_PD_CFG2, 1);
     gpio_set_level(GPIO_NUM_PD_CFG3, 1);
-
-    nvs_handle_t nvs;
-    nvs_open("storage", NVS_READWRITE, &nvs);
 
     uint8_t isPdTested;
     nvs_get_u8(nvs, "pd_tested", &isPdTested);
@@ -735,7 +732,9 @@ static void pd_task(void *pvParameters) {
                 }
             }
 
-            averageVoltageRaw = sum / count;
+            if (count > 0) {
+                averageVoltageRaw = sum / count;
+            }
         }
 
         if (averageVoltageRaw > 0) {
@@ -795,28 +794,37 @@ static void pd_task(void *pvParameters) {
     }
 }
 
-static float kp = 2.12, ki = 0.74, kd = 1.6;
-static float pid_input = 0, pid_output = PWM_MAX - 1, pid_setpoint = 0;
+static float kp = 4.91, ki = 0.86, kd = 0.92;
+static float pid_input = 0, pid_output = PWM_MAX, pid_setpoint = 0;
 
 static struct pid_controller pid_ctrl_data;
 static pid_ctrl_t pid;
 
+static int displayUnitsToTemp(int displayUnits) {
+    return displayUnits;
+}
+
+static int tempToDisplayUnits(int temp) {
+    return temp;
+}
+
 static void heater_task(void *pvParameters) {
     pid = pid_create(&pid_ctrl_data, &pid_input, &pid_output, &pid_setpoint, kp, ki, kd);
-    pid_limits(pid, 0, PWM_MAX - 1);
+    pid_limits(pid, 0, PWM_MAX);
     pid_auto(pid);
 
     while (1) {
+        float temperature;
         float ntcResistance = 5600 * (1 / (3.3 / ((3.3 * heaterTemperature) / 4096) - 1));
 
-        float temperature;
-        temperature = ntcResistance / 100000;
+        temperature = ntcResistance / 104000;
         temperature = log(temperature);
-        temperature /= 3950;
+        temperature /= 5460;
         temperature += 1.0 / (25 + 273.15);
         temperature = 1.0 / temperature;
         temperature -= 273.15;
 
+        heaterTemperatureConverted = tempToDisplayUnits((int) temperature);
         heaterTemperatureC = temperature;
 
         if (!isPDTesting) {
@@ -840,7 +848,7 @@ static void heater_task(void *pvParameters) {
             }
         }
 
-        vTaskDelay(pdMS_TO_TICKS(256));
+        vTaskDelay(pdMS_TO_TICKS(192));
     }
 }
 
@@ -853,16 +861,13 @@ static void report_task(void *pvParameters) {
 
         char buf[640];
         sprintf(buf,
-            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"coolingTemperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"isCooling\":%s,\"boardTemperature\":\"%d\",\"heaterPower\":\"%d\",\"coolerPower\":\"%d\",\"fanPower\":\"%d\",\"freeRam\":\"%d\",\"voltageRaw\":\"%d\",\"isServerThinking\":%s,\"12V\":%s,\"15V\":%s,\"20V\":%s,\"speed\":%d,\"brightness\":%d,\"rgbCurrentFn\":%d}}",
+            "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"boardTemperature\":\"%d\",\"heaterPower\":\"%d\",\"fanPower\":\"%d\",\"freeRam\":\"%d\",\"voltageRaw\":\"%d\",\"isServerThinking\":%s,\"12V\":%s,\"15V\":%s,\"20V\":%s,\"speed\":%d,\"brightness\":%d,\"rgbCurrentFn\":%d,\"authEn\":%d}}",
             isHeating ? "true" : "false", // isHeating
-            (int) heaterTemperatureC, // temperature, C
-            (int) waterTemperature, // radiator temp ADC raw data
+            (int) heaterTemperatureConverted, // temperature, C
             voltageString, // voltage
             (!voltageWarning && (usbVrefVoltage > voltageThreshold)) ? "true" : "false", // isVoltageOk
-            isCooling ? "true" : "false", // isCooling
             (int) boardTemperature, // board temp, C
             isHeating ? (int) (((float) heaterPwm / PWM_MAX) * 100) : 0, // heater %
-            isCooling ? (int) (((float) peltierValue / PWM_MAX) * 100) : 0, // cooler %
             (int) (((float) fanValue / PWM_MAX) * 100), // fan %
             (int) freeRam / 1000, // free RAM, kb
             (int) usbVrefVoltage, // raw voltage data
@@ -872,7 +877,8 @@ static void report_task(void *pvParameters) {
             pdCapable20 ? "true" : "false",
             rgbSpeed,
             rgbPower,
-            rgbFn
+            rgbFn,
+            isAuthEnabled ? 1 : 0
         );
 
         httpd_ws_frame_t pkt;
@@ -884,7 +890,7 @@ static void report_task(void *pvParameters) {
         ws_send_frame_to_all_clients(&pkt, webserver);
         makeAdcReads();
 
-        vTaskDelay(pdMS_TO_TICKS(160));
+        vTaskDelay(pdMS_TO_TICKS(128));
     }
 }
 
@@ -895,7 +901,6 @@ void app_main(void)
     io_conf.mode = GPIO_MODE_OUTPUT;
     io_conf.pin_bit_mask = (
         (1ULL << GPIO_NUM_HEAT)
-        | (1ULL << GPIO_NUM_PELTIER)
         | (1ULL << GPIO_NUM_RGB_R)
         | (1ULL << GPIO_NUM_RGB_G)
         | (1ULL << GPIO_NUM_RGB_B)
@@ -941,11 +946,20 @@ void app_main(void)
     }
     ESP_ERROR_CHECK(ret);
 
+    nvs_open("storage", NVS_READWRITE, &nvs);
+
+    uint8_t authEn = 2;
+    nvs_get_u8(nvs, "dns_auth", &authEn);
+
+    if (authEn != 2) {
+        isAuthEnabled = (bool) authEn;
+    }
+
     ESP_ERROR_CHECK(esp_event_loop_create_default());
     ESP_ERROR_CHECK(esp_netif_init());
 
     ESP_LOGI(TAG, "Init emergency");
-    xTaskCreate(&call_911_task, "call_911_task", 1024, NULL, 3, NULL);
+    xTaskCreatePinnedToCore(&call_911_task, "call_911_task", 1024, NULL, 1, NULL, 0);
 
     ESP_LOGI(TAG, "Init ADC");
     initAdc();
@@ -954,11 +968,11 @@ void app_main(void)
     initPwm();
 
     ESP_LOGI(TAG, "Init PD");
-    xTaskCreate(&pd_task, "pd_task", 4400, NULL, 11, NULL);
+    xTaskCreatePinnedToCore(&pd_task, "pd_task", 4096, NULL, 11, NULL, 1);
 
     ESP_LOGI(TAG, "Init RGB");
     rgb_init();
-    xTaskCreate(&rgb_task, "rgb_task", 5600, NULL, 12, NULL);
+    xTaskCreatePinnedToCore(&rgb_task, "rgb_task", 4096, NULL, 12, NULL, 1);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();
@@ -967,10 +981,10 @@ void app_main(void)
     webserver = start_webserver();
 
     ESP_LOGI(TAG, "Init report service");
-    xTaskCreate(&report_task, "report_task", 5600, NULL, 6, NULL);
+    xTaskCreatePinnedToCore(&report_task, "report_task", 8192, NULL, 2, NULL, 1);
 
     ESP_LOGI(TAG, "Init heater service");
-    xTaskCreate(&heater_task, "heater_task", 5600, NULL, 9, NULL);
+    xTaskCreatePinnedToCore(&heater_task, "heater_task", 4096, NULL, 6, NULL, 1);
 
     ESP_LOGI(TAG, "Initialization successful");
 }
