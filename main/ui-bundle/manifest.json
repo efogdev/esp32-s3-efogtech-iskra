@@ -9,7 +9,7 @@
   "protocol_handlers": [
     {
       "protocol": "web+efogtech",
-      "url": "/"
+      "url": "/?%s"
     }
   ],
   "icons": [

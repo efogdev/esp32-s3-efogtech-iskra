@@ -21,18 +21,22 @@ export default class Settings extends Component {
 		const data = Object.assign({}, this.state, window.store)
 
 		const reboot = () => {
-			window.emitter.emit('update', { isLoading: true })
+			window.emitter.emit('update', { isOnline: false, isLoading: true })
 			window.emitter.emit('send', 'reboot')
 
 			setTimeout(() => {
 				location.reload()
 			}, 1500)
+
+			try { navigator.vibrate(60) } catch (e) {}
 		}
 
 		const pd = (volts) => {
 			window.emitter.emit('update', { isLoading: true })
 			window.emitter.emit('send', `pd_request ${volts}`)
 			location.href = '/';
+
+			try { navigator.vibrate(60) } catch (e) {}
 		}
 
 		const stage = (stageIndex) => {
@@ -51,6 +55,8 @@ export default class Settings extends Component {
 		const toggleAuth = () => {
 			window.emitter.emit('send', `auth`)
 			window.emitter.emit('update', { isLoading: true })
+
+			try { navigator.vibrate(60) } catch (e) {}
 		}
 
 		return (
@@ -81,7 +87,7 @@ export default class Settings extends Component {
 					<br />
 
 					<div className={style.inline}><input id="btn" type="button" value="Firmware" onClick={() => this.setState({ showOta: !data.showOta })} /></div>
-					<div className={style.inline}><button onClick={() => toggleAuth()}>DNS: {data.authEn ? 'yes' : 'no'}</button></div>
+					<div className={style.inline}><button onClick={() => toggleAuth()}>DNS: {data.authEn ? 'on' : 'off'}</button></div>
 
 					<iframe sandbox="allow-same-origin allow-scripts allow-popups allow-forms" className={cn(style.frame, { [style.visible]: data.showOta })} src="/ota" />
 				</div>

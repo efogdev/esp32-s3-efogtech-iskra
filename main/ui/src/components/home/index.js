@@ -139,6 +139,8 @@ export default class Home extends Component {
 	setRgbFn(value) {
 		window.emitter.emit('send', `rgb_fn ${value}`, true)
 		window.emitter.emit('update', { rgbCurrentFn: value, isLoading: true })
+
+		try { navigator.vibrate(60) } catch (e) {}
 	}
 
 	render() {

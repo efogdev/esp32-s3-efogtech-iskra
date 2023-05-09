@@ -794,7 +794,7 @@ static void pd_task(void *pvParameters) {
     }
 }
 
-static float kp = 4.91, ki = 0.86, kd = 0.92;
+static float kp = 4.91, ki = 1.86, kd = 1;
 static float pid_input = 0, pid_output = PWM_MAX, pid_setpoint = 0;
 
 static struct pid_controller pid_ctrl_data;

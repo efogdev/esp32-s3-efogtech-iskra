@@ -36,6 +36,8 @@ window.store = {
 	rgbStageEditing: null,
 	rgbCurrentFn: 0,
 	authEn: false,
+	lastStable: Date.now(),
+	stabilityNotified: false,
 	log: [
 		{ timestamp: Date.now(), text: 'UI launched' },
 	],
@@ -318,11 +320,15 @@ class Overlay extends Component {
 
 		window.emitter.emit('send', `set t=${text}`, true)
 		window.emitter.emit('send', `heat`, true)
+
+		try { navigator.vibrate(160) } catch (e) {}
 	}
 
 	saveStage(stageIndex) {
 		window.emitter.emit('send', `save_stage stage=${stageIndex} ${this.state._stageData}`, true)
 		window.emitter.emit('update', { isStageEditorOpened: false, rgbStageEditing: null, isLoading: true })
+
+		try { navigator.vibrate(160) } catch (e) {}
 	}
 
 	render() {
@@ -333,7 +339,7 @@ class Overlay extends Component {
 				<div className={cn(style.modal, { [style.hide]: !isModalOpened })}>
 					<div className={style.title}>Target temperature:</div>
 					<div>
-						<input placeholder="160-240°C" type="number" id="modal-input" />
+						<input autocomplete="off" placeholder="160-240°C" type="number" id="modal-input" />
 					</div>
 					<div>
 						<button onClick={() => this.heat()}  className={style.primary}>Heat</button>
