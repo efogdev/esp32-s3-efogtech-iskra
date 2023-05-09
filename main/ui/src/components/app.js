@@ -45,10 +45,11 @@ window.store = {
 
 export const rgbFnBinding = {
 	'0': 'Off', // PWM_FN_OFF
-	'1': 'Pulse', // PWM_FN_PULSE
-	'2': 'Fade in', // PWM_FN_FADE_IN
-	'3': 'Fade out', // PWM_FN_FADE_OUT
-	'4': 'Fade', // PWM_FN_FADE
+	'1': 'None', // PWM_FN_NONE
+	'2': 'Pulse', // PWM_FN_PULSE
+	'3': 'Fade in', // PWM_FN_FADE_IN
+	'4': 'Fade out', // PWM_FN_FADE_OUT
+	'5': 'Fade', // PWM_FN_FADE
 }
 
 let updateCache = {};

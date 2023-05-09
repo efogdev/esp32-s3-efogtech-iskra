@@ -227,8 +227,15 @@ static void startHeating() {
     ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 }
 
-static void disable_all() {
+static void stopHeating() {
     isHeating = false;
+
+    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
+    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
+}
+
+static void disable_all() {
+    stopHeating();
     fanValue = 0;
 
     ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
@@ -236,13 +243,6 @@ static void disable_all() {
 
     gpio_set_level(GPIO_NUM_HEAT, 0);
     gpio_set_level(GPIO_NUM_FAN, 0);
-}
-
-static void stopHeating() {
-    isHeating = false;
-
-    ledc_set_duty(PWM_MODE, PWM_CHANNEL_HEAT, 0);
-    ledc_update_duty(PWM_MODE, PWM_CHANNEL_HEAT);
 }
 
 static void toggleHeating() {
@@ -608,7 +608,7 @@ static void rgb_task(void *pvParameters)
         }
 
         rgb_tick();
-        vTaskDelay(pdMS_TO_TICKS(24));
+        vTaskDelay(pdMS_TO_TICKS(8));
     }
 }
 
@@ -859,6 +859,13 @@ static void report_task(void *pvParameters) {
             continue;
         }
 
+        if (isHeating && rgbStage == RGB_STAGE_IDLE && targetTemperature > 100) {
+            set_rgb_stage(RGB_STAGE_HEAT);
+        }
+        else if (!isHeating && rgbStage == RGB_STAGE_HEAT) {
+            set_rgb_stage(RGB_STAGE_IDLE);
+        }
+
         char buf[640];
         sprintf(buf,
             "{\"type\":\"update\",\"content\":{\"isHeating\":%s,\"temperature\":\"%d\",\"voltage\":\"%s\",\"isVoltageOk\":%s,\"boardTemperature\":\"%d\",\"heaterPower\":\"%d\",\"fanPower\":\"%d\",\"freeRam\":\"%d\",\"voltageRaw\":\"%d\",\"isServerThinking\":%s,\"12V\":%s,\"15V\":%s,\"20V\":%s,\"speed\":%d,\"brightness\":%d,\"rgbCurrentFn\":%d,\"authEn\":%d}}",
@@ -968,11 +975,11 @@ void app_main(void)
     initPwm();
 
     ESP_LOGI(TAG, "Init PD");
-    xTaskCreatePinnedToCore(&pd_task, "pd_task", 4096, NULL, 11, NULL, 1);
+    xTaskCreatePinnedToCore(&pd_task, "pd_task", 4400, NULL, 11, NULL, 1);
 
     ESP_LOGI(TAG, "Init RGB");
     rgb_init();
-    xTaskCreatePinnedToCore(&rgb_task, "rgb_task", 4096, NULL, 12, NULL, 1);
+    xTaskCreatePinnedToCore(&rgb_task, "rgb_task", 5600, NULL, 7, NULL, 1);
 
     ESP_LOGI(TAG, "Init wireless");
     initWifi();
@@ -984,7 +991,7 @@ void app_main(void)
     xTaskCreatePinnedToCore(&report_task, "report_task", 8192, NULL, 2, NULL, 1);
 
     ESP_LOGI(TAG, "Init heater service");
-    xTaskCreatePinnedToCore(&heater_task, "heater_task", 4096, NULL, 6, NULL, 1);
+    xTaskCreatePinnedToCore(&heater_task, "heater_task", 4400, NULL, 6, NULL, 1);
 
     ESP_LOGI(TAG, "Initialization successful");
 }
