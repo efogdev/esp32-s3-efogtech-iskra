@@ -21,7 +21,7 @@ static esp_err_t ws_send_frame_to_all_clients(httpd_ws_frame_t *, httpd_handle_t
 const char *GLOBAL_TAG = "GLOBAL";
 static nvs_handle_t nvs;
 
-static const int tickMax = 1024;
+#define tickMax 1024
 static const int tickMsDuration = 7200;
 static const int rgbSpeedDefault = 50;
 static const int rgbPowerDefault = 75;
@@ -70,10 +70,15 @@ static void rgb_save_stage(uint8_t new_stage, char* fn_data, uint8_t new_fn, uin
     nvs_commit(nvs);
 }
 
+static int rgb_fn_data_cache[tickMax];
+
 static void rgb_fn_restart() {
     tick = 0;
     rgbFnStart = esp_timer_get_time();
     sscanf((char *) &rgbFnData[0], "%d 0:", &rgbFnColors);
+
+    for (int i = 0; i < tickMax; i++)
+        rgb_fn_data_cache[i] = -1;
 
     if (rgbFnColors < 1)
         rgbFnColors = 1;
@@ -191,13 +196,21 @@ static void reset_rgb_stage() {
     set_rgb_stage(rgbStage);
 }
 
-static void parse_rgb_fn_data(char* fnData, int tickValue, int *r, int *g, int *b) {
+static void parse_rgb_fn_data(char* fnData, int colorIndex, int *r, int *g, int *b) {
+    if (rgb_fn_data_cache[colorIndex] > -1) {
+        *r = (rgb_fn_data_cache[colorIndex] >> 16) & 0x0ff;
+        *g = (rgb_fn_data_cache[colorIndex] >> 8) & 0x0ff;
+        *b = rgb_fn_data_cache[colorIndex] & 0x0ff;
+    }
+
     char search[256];
-    sprintf(search, " %d:", tickValue);
+    sprintf(search, " %d:", colorIndex);
     char* positionData = strstr(fnData, search);
 
-    sprintf(search, " %d:%%d,%%d,%%d", tickValue);
+    sprintf(search, " %d:%%d,%%d,%%d", colorIndex);
     sscanf(positionData, search, r, g, b);
+
+    rgb_fn_data_cache[colorIndex] = ((*r & 0x0ff) << 16) | ((*g & 0x0ff) << 8) | (*b & 0x0ff);
 }
 
 static float ease_out_circ(float val) {
@@ -250,7 +263,7 @@ static void tick_window(int* tick, uint8_t window_percent) {
     }
 }
 
-static void rgb_tick() {
+static void IRAM_ATTR rgb_tick() {
     int msPassed = (int) (((float) (esp_timer_get_time() - rgbFnStart)) / 1000);
 
     int tickMsLen = rgbFnMsDuration / tickMax;
@@ -273,10 +286,11 @@ static void rgb_tick() {
         return;
     }
 
-    bool quantize = false;
     int r = 0, g = 0, b = 0;
     int finalR = 0, finalG = 0, finalB = 0;
     float fR = -1, fG = -1, fB = -1;
+    float percent = (float) tick / tickMax;
+
     parse_rgb_fn_data((char *) &rgbFnData[0], colorIndex % rgbFnColors, &r, &g, &b);
 
     switch (rgbFn) {
@@ -292,22 +306,46 @@ static void rgb_tick() {
             fG = (float) ((float) g * ease_in_out_quad((float) tick / tickMax));
             fB = (float) ((float) b * ease_in_out_quad((float) tick / tickMax));
 
-            r = (int) fR;
-            g = (int) fG;
-            b = (int) fB;
-
+            r = (int) fR; g = (int) fG; b = (int) fB;
             break;
         case PWM_FN_FADE_OUT:
-            tick_window(&tick, 10);
+            tick_window(&tick, 8);
 
             fR = (float) ((float) r * ease_in_out_quad((float) (tickMax - tick) / (float) tickMax));
             fG = (float) ((float) g * ease_in_out_quad((float) (tickMax - tick) / (float) tickMax));
             fB = (float) ((float) b * ease_in_out_quad((float) (tickMax - tick) / (float) tickMax));
 
-            r = (int) fR;
-            g = (int) fG;
-            b = (int) fB;
+            r = (int) fR; g = (int) fG; b = (int) fB;
+            break;
+        case PWM_FN_PULSE:
+            tick_window(&tick, 5);
 
+            if (percent < 0.5) {
+                fR = (float) r * ease_in_out_expo(percent);
+                fG = (float) g * ease_in_out_expo(percent);
+                fB = (float) b * ease_in_out_expo(percent);
+            } else {
+                fR = (float) r * ease_in_out_quad(1 - percent);
+                fG = (float) g * ease_in_out_quad(1 - percent);
+                fB = (float) b * ease_in_out_quad(1 - percent);
+            }
+
+            r = (int) fR; g = (int) fG; b = (int) fB;
+            break;
+        case PWM_FN_FADE:
+            int r_next = -1, g_next = -1, b_next = -1;
+            parse_rgb_fn_data((char *) &rgbFnData[0], (colorIndex + 1) % rgbFnColors, &r_next, &g_next, &b_next);
+
+            if (r_next == -1 || g_next == -1 || b_next == -1) {
+                r = g = b = 0;
+                break;
+            }
+
+            fR = (float) r + ((float) (r_next - r) * percent);
+            fG = (float) g + ((float) (g_next - g) * percent);
+            fB = (float) b + ((float) (b_next - b) * percent);
+
+            r = (int) fR; g = (int) fG; b = (int) fB;
             break;
         default:
             r = g = b = 0;
@@ -326,12 +364,6 @@ static void rgb_tick() {
         finalR = (int) (fR * (float) rgbPower / 100 * pow(2, 5));
         finalG = (int) (fG * (float) rgbPower / 100 * pow(2, 5));
         finalB = (int) (fB * (float) rgbPower / 100 * pow(2, 5));
-    }
-
-    if (quantize) {
-       finalR = finalR + (esp_random() % 8);
-       finalG = finalG + (esp_random() % 8);
-       finalB = finalB + (esp_random() % 8);
     }
 
     rgb_set(finalR, finalG, finalB);
