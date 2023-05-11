@@ -1,37 +1,27 @@
 #include <string.h>
 #include <math.h>
-#include <stdlib.h>
+#include "esp_partition.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/FreeRTOSConfig.h"
 #include "freertos/task.h"
+#include "esp_ota_ops.h"
 #include "esp_log.h"
 #include "esp_system.h"
 #include "esp_event.h"
 #include "esp_netif.h"
-#include "protocol_examples_common.h"
-#include "esp_tls.h"
-#include "soc/soc_caps.h"
 #include "esp_adc/adc_oneshot.h"
 #include "esp_adc/adc_cali.h"
 #include "esp_adc/adc_cali_scheme.h"
 #include "driver/gpio.h"
-#include "driver/dedic_gpio.h"
 #include "adc_cali_interface.h"
-#include <inttypes.h>
 #include "esp_http_client.h"
 #include "esp_http_server.h"
 #include "driver/ledc.h"
-#include "lwip/inet.h"
 #include "esp_mac.h"
-#include <sys/param.h>
-#include "esp_ota_ops.h"
-#include "esp_flash_partitions.h"
-#include "esp_partition.h"
 #include "driver/temperature_sensor.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 #include "const.c"
-#include "esp_event.h"
 #include "PID/PID.h"
 
 static const char *TAG = "EFOGTECH";
@@ -163,9 +153,18 @@ static void setThinking(enum THINKING_REASON reason, bool think) {
         return;
     }
 
-    if (!think && thinkingReason == reason) {
+    if (thinkingReason == reason) {
         isThinking = false;
     }
+}
+
+static void setFWNew() {
+    nvs_set_u8(nvs, "new_firmware", 1);
+}
+
+static void setFWGood() {
+    nvs_set_u8(nvs, "new_firmware", 0);
+    esp_ota_mark_app_valid_cancel_rollback();
 }
 
 static void pdTest() {
@@ -596,7 +595,7 @@ static void rgb_task(void *pvParameters)
     rgb_clean();
 
     gpio_set_level(GPIO_NUM_LED_0, 1);
-    vTaskDelay(pdMS_TO_TICKS(300));
+    vTaskDelay(pdMS_TO_TICKS(256));
     gpio_set_level(GPIO_NUM_LED_0, 0);
 
     while (1) {
@@ -604,7 +603,7 @@ static void rgb_task(void *pvParameters)
 
         if (usbVrefVoltage < voltageThreshold || isPDTesting) {
             rgb_set(0, 0, 0);
-            vTaskDelay(pdMS_TO_TICKS(320));
+            vTaskDelay(pdMS_TO_TICKS(128));
             continue;
         }
 
@@ -644,6 +643,9 @@ static void pd_task(void *pvParameters) {
     uint8_t isPdTested;
     nvs_get_u8(nvs, "pd_tested", &isPdTested);
 
+    uint8_t isNewFirmware = 0;
+    nvs_get_u8(nvs, "new_firmware", &isNewFirmware);
+
     if (isPdTested == 1) {
         isPDTesting = false;
 
@@ -674,10 +676,10 @@ static void pd_task(void *pvParameters) {
             disable_all();
         }
 
-        if (isPDTesting && (usbVrefVoltage > voltageThreshold)) {
+        if (isNewFirmware == 0 && isPDTesting && (usbVrefVoltage > voltageThreshold)) {
             setThinking(REASON_TEST, true);
             disable_all();
-            vTaskDelay(pdMS_TO_TICKS(120));
+            vTaskDelay(pdMS_TO_TICKS(128));
 
             nvs_set_u8(nvs, "vcc12", 0);
             nvs_set_u8(nvs, "vcc15", 0);
@@ -689,21 +691,21 @@ static void pd_task(void *pvParameters) {
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 0);
             gpio_set_level(GPIO_NUM_PD_CFG3, 1);
-            vTaskDelay(pdMS_TO_TICKS(400));
+            vTaskDelay(pdMS_TO_TICKS(360));
 
             pdCapable12 = true;
             nvs_set_u8(nvs, "vcc12", 1);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 1);
             gpio_set_level(GPIO_NUM_PD_CFG3, 1);
-            vTaskDelay(pdMS_TO_TICKS(400));
+            vTaskDelay(pdMS_TO_TICKS(360));
 
             pdCapable15 = true;
             nvs_set_u8(nvs, "vcc15", 1);
 
             gpio_set_level(GPIO_NUM_PD_CFG2, 1);
             gpio_set_level(GPIO_NUM_PD_CFG3, 0);
-            vTaskDelay(pdMS_TO_TICKS(400));
+            vTaskDelay(pdMS_TO_TICKS(360));
 
             pdCapable20 = true;
             nvs_set_u8(nvs, "vcc20", 1);
@@ -790,7 +792,7 @@ static void pd_task(void *pvParameters) {
             gpio_set_level(GPIO_NUM_PD_CFG3, 0);
         }
 
-        vTaskDelay(pdMS_TO_TICKS(250));
+        vTaskDelay(pdMS_TO_TICKS(256));
         setThinking(REASON_PD, false);
     }
 }
@@ -967,7 +969,7 @@ void app_main(void)
     ESP_ERROR_CHECK(esp_netif_init());
 
     ESP_LOGI(TAG, "Init emergency");
-    xTaskCreatePinnedToCore(&call_911_task, "call_911_task", 1024, NULL, 1, NULL, 0);
+    xTaskCreatePinnedToCore(&call_911_task, "call_911_task", 2048, NULL, 1, NULL, 0);
 
     ESP_LOGI(TAG, "Init ADC");
     initAdc();

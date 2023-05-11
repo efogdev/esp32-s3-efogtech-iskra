@@ -302,18 +302,18 @@ static void IRAM_ATTR rgb_tick() {
         case PWM_FN_FADE_IN:
             tick_window(&tick, 5);
 
-            fR = (float) ((float) r * ease_in_out_quad((float) tick / tickMax));
-            fG = (float) ((float) g * ease_in_out_quad((float) tick / tickMax));
-            fB = (float) ((float) b * ease_in_out_quad((float) tick / tickMax));
+            fR = (float) r * ease_in_out_quad(percent);
+            fG = (float) g * ease_in_out_quad(percent);
+            fB = (float) b * ease_in_out_quad(percent);
 
             r = (int) fR; g = (int) fG; b = (int) fB;
             break;
         case PWM_FN_FADE_OUT:
             tick_window(&tick, 8);
 
-            fR = (float) ((float) r * ease_in_out_quad((float) (tickMax - tick) / (float) tickMax));
-            fG = (float) ((float) g * ease_in_out_quad((float) (tickMax - tick) / (float) tickMax));
-            fB = (float) ((float) b * ease_in_out_quad((float) (tickMax - tick) / (float) tickMax));
+            fR = (float) r * ease_in_out_quad((float) (tickMax - tick) / tickMax);
+            fG = (float) g * ease_in_out_quad((float) (tickMax - tick) / tickMax);
+            fB = (float) b * ease_in_out_quad((float) (tickMax - tick) / tickMax);
 
             r = (int) fR; g = (int) fG; b = (int) fB;
             break;

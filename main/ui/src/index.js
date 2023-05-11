@@ -1,7 +1,7 @@
 import { h, render } from 'preact'
 import './style'
 
-const OFFLINE_THRESHOLD_MS = 600
+const OFFLINE_THRESHOLD_MS = 1000
 const STABILITY_THRESHOLD_MS = 16000
 const STABILITY_THRESHOLD_DEGREES = 2
 
@@ -139,11 +139,7 @@ class API {
 			try {
 				const ifOffline = (Date.now() - window.store.update) > OFFLINE_THRESHOLD_MS
 
-				Object.assign(window.store, {
-					update: Date.now(),
-				})
-
-				window.emitter.emit('update', { update: Date.now(), isOnline: !ifOffline, isLoading: ifOffline || window.store.isLoading })
+				window.emitter.emit('update', { isOnline: !ifOffline, isLoading: ifOffline || window.store.isLoading })
 				window.emitter.emit('refresh', null, true)
 
 				const { temperature, targetTemperature, isHeating } = window.store

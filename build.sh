@@ -2,16 +2,16 @@
 
 [ -s "$NVM_DIR/nvm.sh" ] && \. "$NVM_DIR/nvm.sh"
 
+cd devdep
+node bumpVersion.js
+cd ..
+
 cd main/ui
 nvm use 16
 npm install
 npm run build
 node post_process_build.js
 cd ../..
-
-cd devdep
-node bumpVersion.js
-cd ..
 
 cp main/ui-bundle/* main
 cp main/ui/upload.html main

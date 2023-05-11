@@ -21,6 +21,7 @@ static void set_rgb_power(int);
 static int displayUnitsToTemp(int);
 static void reset_rgb_stage();
 static void toggleAuth();
+static void setFWGood();
 
 static void ws_update_temperature(int new_temperature) {
     _temperature = new_temperature;
@@ -115,8 +116,9 @@ static esp_err_t echo_handler(httpd_req_t *req)
 
         if (strcmp((const char *) ws_pkt.payload, "on") == 0) {
             ESP_LOGI(WS_TAG, "WiFi connection established!");
-            setConnected();
             fetch_stages();
+            setConnected();
+            setFWGood();
         }
 
         if (strcmp((const char *) ws_pkt.payload, "heat") == 0) {
